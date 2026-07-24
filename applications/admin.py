@@ -11,7 +11,14 @@ from .models import (
 
 @admin.register(Municipio)
 class AdministracaoMunicipio(admin.ModelAdmin):
-    list_display = ("nome", "uf", "codigo_ibge", "ativo", "data_referencia")
+    list_display = (
+        "nome",
+        "uf",
+        "codigo_ibge",
+        "ativo",
+        "possui_geometria",
+        "data_referencia",
+    )
     list_filter = ("uf", "ativo")
     search_fields = ("^nome", "^codigo_ibge")
     ordering = ("nome",)
@@ -25,9 +32,18 @@ class AdministracaoMunicipio(admin.ModelAdmin):
         "fonte_dados",
         "data_referencia",
         "sha256_fonte",
+        "geometria_geojson",
+        "fonte_geometria",
+        "data_referencia_geometria",
+        "sha256_geometria",
+        "geometria_atualizada_em",
         "criado_em",
         "atualizado_em",
     )
+
+    @admin.display(boolean=True, description="Geometria")
+    def possui_geometria(self, municipio: Municipio) -> bool:
+        return bool(municipio.geometria_geojson)
 
     def has_add_permission(self, request) -> bool:
         return False
