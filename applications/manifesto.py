@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Any
 
 from .models import AplicacaoMunicipal, VersaoDocumento
 
@@ -26,13 +25,13 @@ CAMPOS_MANIFESTO = (
 )
 
 
-def montar_registros_manifesto(aplicacao: AplicacaoMunicipal) -> list[dict[str, Any]]:
+def montar_registros_manifesto(aplicacao: AplicacaoMunicipal) -> list[dict[str, object]]:
     versoes = VersaoDocumento.objects.filter(documento__aplicacao=aplicacao).select_related(
         "documento",
         "documento__aplicacao__municipio",
         "duplicado_de",
     )
-    registros: list[dict[str, Any]] = []
+    registros: list[dict[str, object]] = []
     for versao in versoes.order_by("documento_id", "versao"):
         registros.append(
             {
