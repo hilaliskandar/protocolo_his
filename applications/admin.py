@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from .models import AplicacaoMunicipal, DocumentoNormativo, Municipio, VersaoDocumento
+from .models import (
+    AplicacaoMunicipal,
+    DocumentoNormativo,
+    Municipio,
+    TipoNormativo,
+    VersaoDocumento,
+)
 
 
 @admin.register(Municipio)
@@ -38,6 +44,15 @@ class AdministracaoAplicacaoMunicipal(admin.ModelAdmin):
     autocomplete_fields = ("municipio",)
 
 
+@admin.register(TipoNormativo)
+class AdministracaoTipoNormativo(admin.ModelAdmin):
+    list_display = ("nome", "sigla", "esfera", "ativo", "dispositivo_fonte")
+    list_filter = ("esfera", "ativo")
+    search_fields = ("^nome", "^codigo", "^sigla")
+    ordering = ("ordem_exibicao", "nome")
+    readonly_fields = ("criado_em", "atualizado_em")
+
+
 class VersaoDocumentoEmLinha(admin.TabularInline):
     model = VersaoDocumento
     extra = 0
@@ -54,7 +69,13 @@ class VersaoDocumentoEmLinha(admin.TabularInline):
 class AdministracaoDocumentoNormativo(admin.ModelAdmin):
     list_display = ("identificacao", "aplicacao", "status", "data_publicacao")
     list_filter = ("tipo", "status", "ano")
-    search_fields = ("numero", "titulo", "aplicacao__municipio__nome")
+    search_fields = (
+        "numero",
+        "titulo",
+        "aplicacao__municipio__nome",
+        "tipo__nome",
+    )
+    autocomplete_fields = ("aplicacao", "tipo")
     inlines = (VersaoDocumentoEmLinha,)
 
     @admin.display(description="Documento")
