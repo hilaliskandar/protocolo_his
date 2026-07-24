@@ -1,10 +1,11 @@
+import gzip
 import json
+import zlib
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
+import httpx
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -29,9 +30,10 @@ class Command(BaseCommand):
     def handle(self, *args, **opcoes) -> None:
         filtro_uf = opcoes["uf"].upper() if opcoes["uf"] else None
         dados_brutos, fonte = self._obter_dados(opcoes["arquivo"], filtro_uf)
+        dados_json = self._descompactar_se_necessario(dados_brutos)
         resumo_fonte = sha256(dados_brutos).hexdigest()
         data_referencia = opcoes["data_referencia"] or timezone.localdate()
-        registros = self._carregar_json(dados_brutos)
+        registros = self._carregar_json(dados_json)
 
         if not isinstance(registros, list):
             raise CommandError("A fonte do IBGE deve conter uma lista de municípios.")
@@ -83,26 +85,48 @@ class Command(BaseCommand):
                 raise CommandError(f"Não foi possível ler o arquivo: {caminho}") from erro
 
         url = URL_IBGE_UF.format(uf=uf) if uf else URL_IBGE_BRASIL
-        requisicao = Request(
-            url,
-            headers={
-                "Accept": "application/json, text/plain",
-                "Accept-Encoding": "identity",
-                "User-Agent": "Protocolo-HIS/1.0",
-            },
-        )
         try:
-            with urlopen(requisicao, timeout=60) as resposta:
-                return resposta.read(), url
-        except (OSError, URLError) as erro:
-            raise CommandError("Não foi possível consultar a API oficial do IBGE.") from erro
+            with httpx.Client(
+                follow_redirects=True,
+                timeout=60,
+                headers={
+                    "Accept": "application/json, text/plain",
+                    "User-Agent": "Protocolo-HIS/1.0",
+                },
+            ) as cliente:
+                resposta = cliente.get(url)
+                resposta.raise_for_status()
+        except httpx.HTTPError as erro:
+            raise CommandError(f"Não foi possível consultar a API oficial do IBGE: {erro}") from erro
+
+        return resposta.content, str(resposta.url)
+
+    @staticmethod
+    def _descompactar_se_necessario(dados: bytes) -> bytes:
+        if dados.startswith(b"\x1f\x8b"):
+            try:
+                return gzip.decompress(dados)
+            except OSError as erro:
+                raise CommandError("A resposta gzip do IBGE está corrompida.") from erro
+
+        if dados.startswith((b"x\x01", b"x\x9c", b"x\xda")):
+            try:
+                return zlib.decompress(dados)
+            except zlib.error as erro:
+                raise CommandError("A resposta zlib do IBGE está corrompida.") from erro
+
+        return dados
 
     @staticmethod
     def _carregar_json(dados: bytes) -> object:
         try:
             texto = dados.decode("utf-8-sig")
         except UnicodeDecodeError as erro:
-            raise CommandError("A fonte de municípios não está codificada em UTF-8.") from erro
+            inicio_hexadecimal = dados[:24].hex(" ")
+            raise CommandError(
+                "A fonte de municípios não está codificada em UTF-8. "
+                f"Primeiros bytes: {inicio_hexadecimal}"
+            ) from erro
 
         try:
             return json.loads(texto)
