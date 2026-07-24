@@ -1,5 +1,6 @@
 import csv
 import json
+from datetime import date
 from hashlib import sha256
 from io import StringIO
 from pathlib import Path
@@ -155,7 +156,7 @@ class TestesGeometriasMunicipais(TestCase):
 
             self.municipio.refresh_from_db()
             self.assertEqual(self.municipio.geometria_geojson["type"], "Polygon")
-            self.assertEqual(self.municipio.data_referencia_geometria, Path)
+            self.assertEqual(self.municipio.data_referencia_geometria, date.today())
             self.assertTrue(self.municipio.sha256_geometria)
 
     def test_codigo_ausente_rejeita_carga_sem_alteracao_parcial(self):
