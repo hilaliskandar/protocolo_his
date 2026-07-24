@@ -6,7 +6,7 @@ from pathlib import Path
 from django.db import models
 
 
-def caminho_arquivo_documento(instance: "VersaoDocumento", nome_arquivo: str) -> str:
+def caminho_arquivo_documento(instance: VersaoDocumento, nome_arquivo: str) -> str:
     """Gera um caminho estável para o arquivo original com base em seu hash."""
     extensao = Path(nome_arquivo).suffix.lower()
     identificador = instance.sha256 or "hash-pendente"
