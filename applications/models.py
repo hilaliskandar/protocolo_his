@@ -77,14 +77,33 @@ class AplicacaoMunicipal(RegistroTemporal):
         return f"{self.municipio} — {self.titulo}"
 
 
-class DocumentoNormativo(RegistroTemporal):
-    class Tipo(models.TextChoices):
-        LEI = "lei", "Lei"
-        LEI_COMPLEMENTAR = "lei_complementar", "Lei complementar"
-        DECRETO = "decreto", "Decreto"
-        RESOLUCAO = "resolucao", "Resolução"
-        OUTRO = "outro", "Outro"
+class TipoNormativo(RegistroTemporal):
+    class Esfera(models.TextChoices):
+        GERAL = "geral", "Geral"
+        FEDERAL = "federal", "Federal"
+        ESTADUAL = "estadual", "Estadual"
+        MUNICIPAL = "municipal", "Municipal"
 
+    codigo = models.SlugField(max_length=60, unique=True)
+    nome = models.CharField(max_length=150)
+    sigla = models.CharField(max_length=20, blank=True)
+    esfera = models.CharField(max_length=12, choices=Esfera.choices, default=Esfera.GERAL)
+    fonte_normativa = models.URLField()
+    dispositivo_fonte = models.CharField(max_length=255)
+    observacoes = models.TextField(blank=True)
+    ativo = models.BooleanField(default=True)
+    ordem_exibicao = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["ordem_exibicao", "nome"]
+        verbose_name = "tipo normativo"
+        verbose_name_plural = "tipos normativos"
+
+    def __str__(self) -> str:
+        return self.nome
+
+
+class DocumentoNormativo(RegistroTemporal):
     class Status(models.TextChoices):
         RECEBIDO = "recebido", "Recebido"
         VERIFICADO = "verificado", "Verificado"
@@ -96,7 +115,11 @@ class DocumentoNormativo(RegistroTemporal):
         on_delete=models.CASCADE,
         related_name="documentos",
     )
-    tipo = models.CharField(max_length=24, choices=Tipo.choices)
+    tipo = models.ForeignKey(
+        TipoNormativo,
+        on_delete=models.PROTECT,
+        related_name="documentos",
+    )
     numero = models.CharField(max_length=40)
     ano = models.PositiveSmallIntegerField()
     titulo = models.CharField(max_length=255)
@@ -104,7 +127,7 @@ class DocumentoNormativo(RegistroTemporal):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.RECEBIDO)
 
     class Meta:
-        ordering = ["tipo", "ano", "numero"]
+        ordering = ["tipo__ordem_exibicao", "ano", "numero"]
         constraints = [
             models.UniqueConstraint(
                 fields=["aplicacao", "tipo", "numero", "ano"],
@@ -115,7 +138,7 @@ class DocumentoNormativo(RegistroTemporal):
         verbose_name_plural = "documentos normativos"
 
     def __str__(self) -> str:
-        return f"{self.get_tipo_display()} nº {self.numero}/{self.ano}"
+        return f"{self.tipo.nome} nº {self.numero}/{self.ano}"
 
 
 class VersaoDocumento(models.Model):
