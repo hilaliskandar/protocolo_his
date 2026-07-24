@@ -56,13 +56,16 @@ class TestesVersaoDocumento(BaseTesteCorpus):
             self.assertIn(versao.sha256, versao.arquivo.name)
 
     def test_arquivo_vazio_e_rejeitado(self):
-        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
-            with self.assertRaises(ValidationError):
-                VersaoDocumento.objects.create(
-                    documento=self.documento,
-                    arquivo=SimpleUploadedFile("vazio.pdf", b"", "application/pdf"),
-                    mime_type="application/pdf",
-                )
+        with (
+            TemporaryDirectory() as diretorio,
+            self.settings(MEDIA_ROOT=Path(diretorio)),
+            self.assertRaises(ValidationError),
+        ):
+            VersaoDocumento.objects.create(
+                documento=self.documento,
+                arquivo=SimpleUploadedFile("vazio.pdf", b"", "application/pdf"),
+                mime_type="application/pdf",
+            )
 
     def test_conteudo_repetido_e_marcado_como_duplicado(self):
         outro_documento = DocumentoNormativo.objects.create(
