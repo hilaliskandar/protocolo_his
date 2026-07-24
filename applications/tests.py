@@ -139,6 +139,7 @@ class TestesGeometriasMunicipais(TestCase):
 
     def test_carrega_geometria_por_codigo_ibge(self):
         colecao = self._colecao(self._feicao("3556206"))
+        referencia = date(2026, 7, 24)
 
         with TemporaryDirectory() as diretorio, self.settings(
             PROTOCOL_DATA_ROOT=Path(diretorio)
@@ -151,12 +152,13 @@ class TestesGeometriasMunicipais(TestCase):
                 "carregar_geometrias_municipais",
                 arquivo=caminho,
                 uf="SP",
+                data_referencia=referencia,
                 stdout=StringIO(),
             )
 
             self.municipio.refresh_from_db()
             self.assertEqual(self.municipio.geometria_geojson["type"], "Polygon")
-            self.assertEqual(self.municipio.data_referencia_geometria, date.today())
+            self.assertEqual(self.municipio.data_referencia_geometria, referencia)
             self.assertTrue(self.municipio.sha256_geometria)
 
     def test_codigo_ausente_rejeita_carga_sem_alteracao_parcial(self):
