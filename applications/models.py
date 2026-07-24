@@ -32,6 +32,16 @@ class Municipio(RegistroTemporal):
     fonte_dados = models.URLField(blank=True)
     data_referencia = models.DateField(blank=True, null=True)
     sha256_fonte = models.CharField(max_length=64, blank=True, editable=False)
+    geometria_geojson = models.JSONField(
+        "geometria GeoJSON",
+        blank=True,
+        null=True,
+        editable=False,
+    )
+    fonte_geometria = models.URLField(blank=True, editable=False)
+    data_referencia_geometria = models.DateField(blank=True, null=True, editable=False)
+    sha256_geometria = models.CharField(max_length=64, blank=True, editable=False)
+    geometria_atualizada_em = models.DateTimeField(blank=True, null=True, editable=False)
 
     class Meta:
         ordering = ["uf", "nome"]
