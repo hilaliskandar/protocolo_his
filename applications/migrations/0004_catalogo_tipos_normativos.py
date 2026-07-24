@@ -202,7 +202,7 @@ class Migration(migrations.Migration):
         migrations.AlterModelOptions(
             name="documentonormativo",
             options={
-                "ordering": ["tipo__ordem_exibicao", "ano", "numero"],
+                "ordering": ["ano", "numero"],
                 "verbose_name": "documento normativo",
                 "verbose_name_plural": "documentos normativos",
             },
