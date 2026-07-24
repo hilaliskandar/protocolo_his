@@ -1,0 +1,50 @@
+id: PD_01
+name: Diretrizes explicitas para HIS
+version: 0.1.0
+status: draft
+objective: >-
+  Verificar se o sistema normativo municipal reconhece explicitamente a Habitacao de
+  Interesse Social como prioridade, objetivo ou diretriz da politica urbana e habitacional.
+canonical_unit: article
+primary_question: >-
+  A legislacao municipal estabelece diretrizes explicitas, operacionais e territorialmente
+  aplicaveis para a producao de Habitacao de Interesse Social?
+priority_sources:
+  - plano_diretor
+  - politica_habitacional
+  - plano_local_habitacao
+essential_criteria:
+  - explicit_recognition_of_his
+  - connection_to_urban_policy
+  - normative_command_or_guideline
+  - identifiable_scope
+needle_questions:
+  coverage:
+    - Quais artigos mencionam HIS, habitacao social ou denominacoes municipais equivalentes?
+    - Quais artigos definem objetivos ou diretrizes de politica habitacional?
+    - Quais regras gerais podem limitar ou neutralizar essas diretrizes?
+  candidate_identification:
+    - O dispositivo reconhece HIS como prioridade, objetivo ou diretriz?
+    - A mencao possui efeito normativo ou e apenas declaratoria?
+    - O dispositivo depende de regulamentacao ou de outro diploma?
+positive_evidence:
+  - explicit_guideline
+  - explicit_priority
+  - integration_with_urban_policy
+negative_evidence:
+  - conflicting_guideline
+  - exclusion_from_priority_territories
+abstention_conditions:
+  - essential_source_missing
+  - relevant_annex_unreadable
+  - unresolved_external_reference
+allowed_classes:
+  - A
+  - P
+  - NA
+  - NV
+learning:
+  target_relation: article_variable
+  record_false_positives: true
+  record_false_negatives: true
+  require_initial_retrieval_snapshot: true
