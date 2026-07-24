@@ -8,10 +8,14 @@ from urllib.request import Request, urlopen
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
 from applications.models import Municipio
 
-URL_IBGE = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome"
+URL_IBGE_BRASIL = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome"
+URL_IBGE_UF = (
+    "https://servicodados.ibge.gov.br/api/v1/localidades/estados/{uf}/municipios?orderBy=nome"
+)
 
 
 class Command(BaseCommand):
@@ -20,18 +24,14 @@ class Command(BaseCommand):
     def add_arguments(self, parser) -> None:
         parser.add_argument("--arquivo", type=Path)
         parser.add_argument("--uf", type=str)
-        parser.add_argument("--data-referencia", type=date.fromisoformat, default=date.today)
+        parser.add_argument("--data-referencia", type=date.fromisoformat)
 
     def handle(self, *args, **opcoes) -> None:
-        dados_brutos, fonte = self._obter_dados(opcoes["arquivo"])
-        resumo_fonte = sha256(dados_brutos).hexdigest()
-        data_referencia = opcoes["data_referencia"]
         filtro_uf = opcoes["uf"].upper() if opcoes["uf"] else None
-
-        try:
-            registros = json.loads(dados_brutos.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as erro:
-            raise CommandError("A fonte de municípios não contém JSON válido em UTF-8.") from erro
+        dados_brutos, fonte = self._obter_dados(opcoes["arquivo"], filtro_uf)
+        resumo_fonte = sha256(dados_brutos).hexdigest()
+        data_referencia = opcoes["data_referencia"] or timezone.localdate()
+        registros = self._carregar_json(dados_brutos)
 
         if not isinstance(registros, list):
             raise CommandError("A fonte do IBGE deve conter uma lista de municípios.")
@@ -60,6 +60,9 @@ class Command(BaseCommand):
                 criados += int(criado)
                 atualizados += int(not criado)
 
+            if not codigos_processados:
+                raise CommandError("Nenhum município foi encontrado para o filtro informado.")
+
             consulta_inativacao = Municipio.objects.exclude(codigo_ibge__in=codigos_processados)
             if filtro_uf:
                 consulta_inativacao = consulta_inativacao.filter(uf=filtro_uf)
@@ -72,19 +75,43 @@ class Command(BaseCommand):
             )
         )
 
-    def _obter_dados(self, caminho: Path | None) -> tuple[bytes, str]:
+    def _obter_dados(self, caminho: Path | None, uf: str | None) -> tuple[bytes, str]:
         if caminho:
             try:
                 return caminho.read_bytes(), caminho.resolve().as_uri()
             except OSError as erro:
                 raise CommandError(f"Não foi possível ler o arquivo: {caminho}") from erro
 
-        requisicao = Request(URL_IBGE, headers={"User-Agent": "Protocolo-HIS/1.0"})
+        url = URL_IBGE_UF.format(uf=uf) if uf else URL_IBGE_BRASIL
+        requisicao = Request(
+            url,
+            headers={
+                "Accept": "application/json, text/plain",
+                "Accept-Encoding": "identity",
+                "User-Agent": "Protocolo-HIS/1.0",
+            },
+        )
         try:
             with urlopen(requisicao, timeout=60) as resposta:
-                return resposta.read(), URL_IBGE
+                return resposta.read(), url
         except (OSError, URLError) as erro:
             raise CommandError("Não foi possível consultar a API oficial do IBGE.") from erro
+
+    @staticmethod
+    def _carregar_json(dados: bytes) -> object:
+        try:
+            texto = dados.decode("utf-8-sig")
+        except UnicodeDecodeError as erro:
+            raise CommandError("A fonte de municípios não está codificada em UTF-8.") from erro
+
+        try:
+            return json.loads(texto)
+        except json.JSONDecodeError as erro:
+            amostra = " ".join(texto[:160].split())
+            raise CommandError(
+                "A fonte de municípios não contém JSON válido. "
+                f"Conteúdo inicial recebido: {amostra!r}"
+            ) from erro
 
     def _preservar_fotografia(self, dados: bytes, resumo: str, referencia: date) -> Path:
         diretorio = Path(settings.PROTOCOL_DATA_ROOT) / "referencias" / "ibge"
