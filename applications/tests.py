@@ -10,7 +10,13 @@ from django.test import TestCase
 from django.urls import reverse
 
 from .manifesto import gerar_manifesto_csv, gerar_manifesto_json
-from .models import AplicacaoMunicipal, DocumentoNormativo, Municipio, VersaoDocumento
+from .models import (
+    AplicacaoMunicipal,
+    DocumentoNormativo,
+    Municipio,
+    TipoNormativo,
+    VersaoDocumento,
+)
 
 
 class TestesPaginaInicial(TestCase):
@@ -28,9 +34,11 @@ class BaseTesteCorpus(TestCase):
             municipio=self.municipio,
             titulo="Aplicação piloto",
         )
+        self.tipo_lei = TipoNormativo.objects.get(codigo="lei_ordinaria")
+        self.tipo_decreto = TipoNormativo.objects.get(codigo="decreto_regulamentar")
         self.documento = DocumentoNormativo.objects.create(
             aplicacao=self.aplicacao,
-            tipo=DocumentoNormativo.Tipo.LEI,
+            tipo=self.tipo_lei,
             numero="7.730",
             ano=2019,
             titulo="Plano Diretor",
@@ -70,7 +78,7 @@ class TestesVersaoDocumento(BaseTesteCorpus):
     def test_conteudo_repetido_e_marcado_como_duplicado(self):
         outro_documento = DocumentoNormativo.objects.create(
             aplicacao=self.aplicacao,
-            tipo=DocumentoNormativo.Tipo.DECRETO,
+            tipo=self.tipo_decreto,
             numero="1",
             ano=2020,
             titulo="Documento repetido",
@@ -89,6 +97,15 @@ class TestesVersaoDocumento(BaseTesteCorpus):
 
             self.assertEqual(duplicado.situacao_ingestao, VersaoDocumento.SituacaoIngestao.DUPLICADO)
             self.assertEqual(duplicado.duplicado_de, original)
+
+
+class TestesCatalogoNormativo(TestCase):
+    def test_catalogo_inicial_registra_fonte_e_dispositivo(self):
+        tipo = TipoNormativo.objects.get(codigo="lei_complementar")
+
+        self.assertEqual(tipo.nome, "Lei complementar")
+        self.assertIn("lcp95", tipo.fonte_normativa.lower())
+        self.assertIn("art", tipo.dispositivo_fonte.lower())
 
 
 class TestesManifestoCorpus(BaseTesteCorpus):
