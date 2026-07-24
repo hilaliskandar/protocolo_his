@@ -26,6 +26,12 @@ class Municipio(RegistroTemporal):
     nome = models.CharField(max_length=150)
     uf = models.CharField("UF", max_length=2)
     codigo_ibge = models.CharField("código IBGE", max_length=7, blank=True, null=True, unique=True)
+    codigo_uf = models.CharField("código da UF", max_length=2, blank=True)
+    nome_uf = models.CharField("nome da UF", max_length=50, blank=True)
+    ativo = models.BooleanField(default=True)
+    fonte_dados = models.URLField(blank=True)
+    data_referencia = models.DateField(blank=True, null=True)
+    sha256_fonte = models.CharField(max_length=64, blank=True, editable=False)
 
     class Meta:
         ordering = ["uf", "nome"]
@@ -36,7 +42,8 @@ class Municipio(RegistroTemporal):
         verbose_name_plural = "municípios"
 
     def __str__(self) -> str:
-        return f"{self.nome}/{self.uf.upper()}"
+        identificador = f" — IBGE {self.codigo_ibge}" if self.codigo_ibge else ""
+        return f"{self.nome}/{self.uf.upper()}{identificador}"
 
     def save(self, *args, **kwargs) -> None:
         self.uf = self.uf.strip().upper()

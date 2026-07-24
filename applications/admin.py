@@ -5,16 +5,37 @@ from .models import AplicacaoMunicipal, DocumentoNormativo, Municipio, VersaoDoc
 
 @admin.register(Municipio)
 class AdministracaoMunicipio(admin.ModelAdmin):
-    list_display = ("nome", "uf", "codigo_ibge", "criado_em")
-    list_filter = ("uf",)
-    search_fields = ("nome", "codigo_ibge")
+    list_display = ("nome", "uf", "codigo_ibge", "ativo", "data_referencia")
+    list_filter = ("uf", "ativo")
+    search_fields = ("^nome", "^codigo_ibge")
+    ordering = ("nome",)
+    readonly_fields = (
+        "nome",
+        "uf",
+        "codigo_ibge",
+        "codigo_uf",
+        "nome_uf",
+        "ativo",
+        "fonte_dados",
+        "data_referencia",
+        "sha256_fonte",
+        "criado_em",
+        "atualizado_em",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
 
 
 @admin.register(AplicacaoMunicipal)
 class AdministracaoAplicacaoMunicipal(admin.ModelAdmin):
     list_display = ("titulo", "municipio", "status", "criado_em")
     list_filter = ("status", "municipio__uf")
-    search_fields = ("titulo", "municipio__nome")
+    search_fields = ("titulo", "municipio__nome", "municipio__codigo_ibge")
+    autocomplete_fields = ("municipio",)
 
 
 class VersaoDocumentoEmLinha(admin.TabularInline):
