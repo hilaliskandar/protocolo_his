@@ -127,7 +127,7 @@ class DocumentoNormativo(RegistroTemporal):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.RECEBIDO)
 
     class Meta:
-        ordering = ["tipo__ordem_exibicao", "ano", "numero"]
+        ordering = ["ano", "numero"]
         constraints = [
             models.UniqueConstraint(
                 fields=["aplicacao", "tipo", "numero", "ano"],
