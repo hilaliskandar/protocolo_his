@@ -4,7 +4,6 @@ from pathlib import Path
 
 from .models import AplicacaoMunicipal, VersaoDocumento
 
-
 CAMPOS_MANIFESTO = (
     "aplicacao_id",
     "municipio",
