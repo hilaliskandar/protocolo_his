@@ -19,6 +19,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "applications.apps.ApplicationsConfig",
 ]
 
 MIDDLEWARE = [
@@ -68,5 +69,8 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 MEDIA_URL = "media/"
-MEDIA_ROOT = BASE_DIR / "media"
+PROTOCOL_DATA_ROOT = Path(os.getenv("PROTOCOL_DATA_ROOT", str(BASE_DIR / "data")))
+if not PROTOCOL_DATA_ROOT.is_absolute():
+    PROTOCOL_DATA_ROOT = BASE_DIR / PROTOCOL_DATA_ROOT
+MEDIA_ROOT = PROTOCOL_DATA_ROOT
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
