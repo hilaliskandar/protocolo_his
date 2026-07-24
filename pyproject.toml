@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "protocolo-his"
-version = "0.1.1"
+version = "0.1.2"
 description = "Plataforma para execução auditável do Protocolo HIS"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,6 +16,7 @@ dependencies = [
   "pydantic>=2.11,<3",
   "pyyaml>=6.0,<7",
   "httpx>=0.28,<1",
+  "python-dotenv>=1.1,<2",
 ]
 
 [project.optional-dependencies]
