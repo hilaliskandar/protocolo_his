@@ -27,7 +27,7 @@ class Command(BaseCommand):
         parser.add_argument("--arquivo", type=Path)
         parser.add_argument("--uf", type=str)
         parser.add_argument("--codigo-uf", type=str)
-        parser.add_argument("--data-referencia", type=date.fromisoformat, default=date.today)
+        parser.add_argument("--data-referencia", type=date.fromisoformat)
         parser.add_argument("--ignorar-ausentes", action="store_true")
 
     def handle(self, *args, **opcoes) -> None:
@@ -35,12 +35,8 @@ class Command(BaseCommand):
         codigo_uf = self._resolver_codigo_uf(filtro_uf, opcoes["codigo_uf"])
         dados_brutos, fonte = self._obter_dados(opcoes["arquivo"], codigo_uf)
         resumo_fonte = sha256(dados_brutos).hexdigest()
-        data_referencia = opcoes["data_referencia"]
-
-        try:
-            colecao = json.loads(dados_brutos.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as erro:
-            raise CommandError("A fonte de geometrias não contém JSON válido em UTF-8.") from erro
+        data_referencia = opcoes["data_referencia"] or timezone.localdate()
+        colecao = self._carregar_json(dados_brutos)
 
         feicoes = self._validar_colecao(colecao)
         caminho_fotografia = self._preservar_fotografia(
@@ -131,12 +127,35 @@ class Command(BaseCommand):
                 raise CommandError(f"Não foi possível ler o arquivo: {caminho}") from erro
 
         url = URL_BASE_GEODATA.format(codigo_uf=codigo_uf)
-        requisicao = Request(url, headers={"User-Agent": "Protocolo-HIS/1.0"})
+        requisicao = Request(
+            url,
+            headers={
+                "Accept": "application/geo+json, application/json, text/plain",
+                "Accept-Encoding": "identity",
+                "User-Agent": "Protocolo-HIS/1.0",
+            },
+        )
         try:
             with urlopen(requisicao, timeout=120) as resposta:
                 return resposta.read(), url
         except (OSError, URLError) as erro:
             raise CommandError("Não foi possível consultar a fonte GeoJSON.") from erro
+
+    @staticmethod
+    def _carregar_json(dados: bytes) -> object:
+        try:
+            texto = dados.decode("utf-8-sig")
+        except UnicodeDecodeError as erro:
+            raise CommandError("A fonte de geometrias não está codificada em UTF-8.") from erro
+
+        try:
+            return json.loads(texto)
+        except json.JSONDecodeError as erro:
+            amostra = " ".join(texto[:160].split())
+            raise CommandError(
+                "A fonte de geometrias não contém JSON válido. "
+                f"Conteúdo inicial recebido: {amostra!r}"
+            ) from erro
 
     def _preservar_fotografia(
         self,
@@ -183,9 +202,7 @@ class Command(BaseCommand):
         for candidato in candidatos:
             if candidato is None:
                 continue
-            codigo = str(candidato).strip()
-            if codigo.endswith(".0"):
-                codigo = codigo[:-2]
+            codigo = str(candidato).strip().removesuffix(".0")
             if codigo.isdigit() and len(codigo) == 7:
                 return codigo
         raise CommandError("Uma feição não contém código IBGE municipal de sete dígitos.")
