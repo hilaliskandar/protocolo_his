@@ -1,11 +1,14 @@
 import csv
 import json
 from hashlib import sha256
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 from django.urls import reverse
 
@@ -106,6 +109,74 @@ class TestesCatalogoNormativo(TestCase):
         self.assertEqual(tipo.nome, "Lei complementar")
         self.assertIn("lcp95", tipo.fonte_normativa.lower())
         self.assertIn("art", tipo.dispositivo_fonte.lower())
+
+
+class TestesGeometriasMunicipais(TestCase):
+    def setUp(self):
+        self.municipio = Municipio.objects.create(
+            nome="Valinhos",
+            uf="SP",
+            codigo_ibge="3556206",
+            codigo_uf="35",
+            nome_uf="São Paulo",
+        )
+
+    @staticmethod
+    def _colecao(*feicoes: dict) -> dict:
+        return {"type": "FeatureCollection", "features": list(feicoes)}
+
+    @staticmethod
+    def _feicao(codigo: str) -> dict:
+        return {
+            "type": "Feature",
+            "properties": {"id": codigo, "name": "Município"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[[-47.0, -23.0], [-46.9, -23.0], [-47.0, -23.0]]],
+            },
+        }
+
+    def test_carrega_geometria_por_codigo_ibge(self):
+        colecao = self._colecao(self._feicao("3556206"))
+
+        with TemporaryDirectory() as diretorio, self.settings(
+            PROTOCOL_DATA_ROOT=Path(diretorio)
+        ):
+            caminho = Path(diretorio) / "malhas" / "sp.geojson"
+            caminho.parent.mkdir(parents=True)
+            caminho.write_text(json.dumps(colecao), encoding="utf-8")
+
+            call_command(
+                "carregar_geometrias_municipais",
+                arquivo=caminho,
+                uf="SP",
+                stdout=StringIO(),
+            )
+
+            self.municipio.refresh_from_db()
+            self.assertEqual(self.municipio.geometria_geojson["type"], "Polygon")
+            self.assertEqual(self.municipio.data_referencia_geometria, Path)
+            self.assertTrue(self.municipio.sha256_geometria)
+
+    def test_codigo_ausente_rejeita_carga_sem_alteracao_parcial(self):
+        colecao = self._colecao(self._feicao("3556206"), self._feicao("9999999"))
+
+        with TemporaryDirectory() as diretorio, self.settings(
+            PROTOCOL_DATA_ROOT=Path(diretorio)
+        ):
+            caminho = Path(diretorio) / "sp.geojson"
+            caminho.write_text(json.dumps(colecao), encoding="utf-8")
+
+            with self.assertRaises(CommandError):
+                call_command(
+                    "carregar_geometrias_municipais",
+                    arquivo=caminho,
+                    uf="SP",
+                    stdout=StringIO(),
+                )
+
+            self.municipio.refresh_from_db()
+            self.assertIsNone(self.municipio.geometria_geojson)
 
 
 class TestesManifestoCorpus(BaseTesteCorpus):
