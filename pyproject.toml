@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "protocolo-his"
-version = "0.1.0"
+version = "0.1.1"
 description = "Plataforma para execução auditável do Protocolo HIS"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -33,6 +33,19 @@ ml = [
 reports = [
   "python-docx>=1.2,<2",
   "docxtpl>=0.20,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["config"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/config",
+  "/schemas",
+  "/docs",
+  "/manage.py",
+  "/README.md",
+  "/LICENSE",
 ]
 
 [tool.pytest.ini_options]
