@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "development-only-secret-key")
 DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
@@ -53,8 +56,8 @@ DATABASES = {
         "NAME": os.getenv("POSTGRES_DB", "protocolo_his"),
         "USER": os.getenv("POSTGRES_USER", "protocolo_his"),
         "PASSWORD": os.getenv("POSTGRES_PASSWORD", "protocolo_his"),
-        "HOST": os.getenv("POSTGRES_HOST", "localhost"),
-        "PORT": os.getenv("POSTGRES_PORT", "5432"),
+        "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.getenv("POSTGRES_PORT", "55432"),
     }
 }
 
