@@ -3,6 +3,7 @@ from __future__ import annotations
 from hashlib import sha256
 from pathlib import Path
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -111,6 +112,10 @@ class DocumentoNormativo(RegistroTemporal):
 
 
 class VersaoDocumento(models.Model):
+    class SituacaoIngestao(models.TextChoices):
+        ORIGINAL = "original", "Original"
+        DUPLICADO = "duplicado", "Duplicado"
+
     documento = models.ForeignKey(
         DocumentoNormativo,
         on_delete=models.CASCADE,
@@ -122,6 +127,22 @@ class VersaoDocumento(models.Model):
     mime_type = models.CharField(max_length=120, blank=True)
     sha256 = models.CharField(max_length=64, editable=False, db_index=True)
     tamanho_bytes = models.PositiveBigIntegerField(editable=False, default=0)
+    origem_recebimento = models.CharField(max_length=255, blank=True)
+    observacoes_ingestao = models.TextField(blank=True)
+    situacao_ingestao = models.CharField(
+        max_length=16,
+        choices=SituacaoIngestao.choices,
+        default=SituacaoIngestao.ORIGINAL,
+        editable=False,
+    )
+    duplicado_de = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="duplicatas",
+        blank=True,
+        null=True,
+        editable=False,
+    )
     original_preservado = models.BooleanField(default=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 
@@ -140,26 +161,44 @@ class VersaoDocumento(models.Model):
         return f"{self.documento} — versão {self.versao}"
 
     def _calcular_sha256(self) -> str:
-        digest = sha256()
+        resumo = sha256()
         arquivo = self.arquivo.file
         posicao_original = arquivo.tell() if arquivo.seekable() else None
         arquivo.seek(0)
 
         if hasattr(arquivo, "chunks"):
             for bloco in arquivo.chunks():
-                digest.update(bloco)
+                resumo.update(bloco)
         else:
             while bloco := arquivo.read(1024 * 1024):
-                digest.update(bloco)
+                resumo.update(bloco)
 
         if posicao_original is not None:
             arquivo.seek(posicao_original)
-        return digest.hexdigest()
+        return resumo.hexdigest()
+
+    def _localizar_duplicado(self) -> VersaoDocumento | None:
+        consulta = VersaoDocumento.objects.filter(
+            documento__aplicacao=self.documento.aplicacao,
+            sha256=self.sha256,
+        )
+        if self.pk:
+            consulta = consulta.exclude(pk=self.pk)
+        return consulta.order_by("criado_em", "pk").first()
 
     def save(self, *args, **kwargs) -> None:
         if self.arquivo and not self.sha256:
+            self.tamanho_bytes = self.arquivo.size
+            if self.tamanho_bytes == 0:
+                raise ValidationError({"arquivo": "O arquivo recebido está vazio."})
             if not self.nome_original:
                 self.nome_original = Path(self.arquivo.name).name
             self.sha256 = self._calcular_sha256()
-            self.tamanho_bytes = self.arquivo.size
+            duplicado = self._localizar_duplicado()
+            if duplicado:
+                self.duplicado_de = duplicado
+                self.situacao_ingestao = self.SituacaoIngestao.DUPLICADO
+            else:
+                self.duplicado_de = None
+                self.situacao_ingestao = self.SituacaoIngestao.ORIGINAL
         super().save(*args, **kwargs)
