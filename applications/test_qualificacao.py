@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from hashlib import sha256
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -88,7 +89,7 @@ class TestesQualificacaoDocumento(TestCase):
         assert min_native_chars == 40
         return DiagnosticoSimulado(
             source_path=caminho,
-            sha256="hash-do-motor",
+            sha256=sha256(caminho.read_bytes()).hexdigest(),
             page_count=2,
             pages=[
                 PaginaSimulada(
@@ -163,6 +164,25 @@ class TestesQualificacaoDocumento(TestCase):
                 processamento.rota_documento,
                 ProcessamentoDocumento.RotaDocumento.MANUAL,
             )
+            self.assertEqual(self.documento.status, DocumentoNormativo.Status.QUARENTENA)
+
+    def test_hash_divergente_do_motor_vai_para_quarentena(self):
+        def motor_divergente(caminho: Path, min_native_chars: int = 40):
+            diagnostico = self._motor_simulado(caminho, min_native_chars)
+            diagnostico.sha256 = "0" * 64
+            return diagnostico
+
+        with (
+            TemporaryDirectory() as diretorio,
+            self.settings(MEDIA_ROOT=Path(diretorio)),
+            patch("applications.qualificacao._carregar_motor", return_value=motor_divergente),
+        ):
+            versao = self._criar_versao()
+
+            with self.assertRaises(ErroQualificacaoDocumento):
+                qualificar_versao(versao)
+
+            self.documento.refresh_from_db()
             self.assertEqual(self.documento.status, DocumentoNormativo.Status.QUARENTENA)
 
     def test_comando_qualifica_versao_especifica(self):
