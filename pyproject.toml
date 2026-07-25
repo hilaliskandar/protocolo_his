@@ -39,6 +39,9 @@ reports = [
   "docxtpl>=0.20,<1",
 ]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["config", "applications"]
 
