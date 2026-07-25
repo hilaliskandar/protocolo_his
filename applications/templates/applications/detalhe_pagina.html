@@ -1,0 +1,9 @@
+{% extends "applications/base.html" %}
+{% block title %}Página {{ pagina.numero_pagina }} — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / <a href="{% url 'detalhe_processamento' pagina.processamento.pk %}">Processamento #{{ pagina.processamento.pk }}</a> / Página {{ pagina.numero_pagina }}</div>
+<h1>Página {{ pagina.numero_pagina }}</h1>
+<p class="subtitulo">{{ pagina.processamento.versao_documento.documento }} — {{ pagina.processamento.versao_documento.documento.aplicacao.municipio }}</p>
+<div class="grade"><section class="painel"><h2>Classificação</h2><dl><dt>Rota</dt><dd>{{ pagina.rota }}</dd><dt>Tipo</dt><dd>{{ pagina.tipo_pagina }}</dd><dt>Texto nativo</dt><dd>{{ pagina.possui_texto_nativo|yesno:"Sim,Não" }}</dd><dt>Caracteres</dt><dd>{{ pagina.quantidade_caracteres }}</dd><dt>Imagens</dt><dd>{{ pagina.quantidade_imagens }}</dd><dt>Modo de extração</dt><dd>{{ pagina.modo_extracao|default:"—" }}</dd><dt>Texto rotacionado</dt><dd>{{ pagina.texto_rotacionado|yesno:"Sim,Não" }}</dd></dl></section><section class="painel"><h2>Evidências</h2><dl><dt>Tabela suspeita</dt><dd>{{ pagina.tabela_suspeita|yesno:"Sim,Não" }}</dd><dt>Mapa suspeito</dt><dd>{{ pagina.mapa_suspeito|yesno:"Sim,Não" }}</dd></dl><h3>Avisos</h3>{% if pagina.avisos %}<ul>{% for aviso in pagina.avisos %}<li>{{ aviso }}</li>{% endfor %}</ul>{% else %}<p class="vazio">Nenhum aviso.</p>{% endif %}</section></div>
+<section class="painel" style="margin-top:1rem"><h2>Dados técnicos estruturados</h2><pre>{{ dados_tecnicos_json }}</pre></section>
+{% endblock %}
