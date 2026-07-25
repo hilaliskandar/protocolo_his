@@ -130,6 +130,7 @@ class TestesInterfaceQualificacao(TestCase):
         download = self.client.get(reverse("baixar_artefato", args=[self.artefato.pk]))
 
         self.assertEqual(detalhe.status_code, 200)
-        self.assertContains(detalhe, '"page_count": 2')
+        self.assertContains(detalhe, "&quot;page_count&quot;: 2", html=False)
         self.assertEqual(download.status_code, 200)
         self.assertIn("attachment", download.headers["Content-Disposition"])
+        download.close()
