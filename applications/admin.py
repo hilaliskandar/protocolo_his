@@ -2,8 +2,11 @@ from django.contrib import admin
 
 from .models import (
     AplicacaoMunicipal,
+    ArtefatoProcessado,
+    DiagnosticoPagina,
     DocumentoNormativo,
     Municipio,
+    ProcessamentoDocumento,
     TipoNormativo,
     VersaoDocumento,
 )
@@ -118,3 +121,142 @@ class AdministracaoVersaoDocumento(admin.ModelAdmin):
         "criado_em",
     )
     search_fields = ("nome_original", "sha256", "documento__titulo", "origem_recebimento")
+
+
+class DiagnosticoPaginaEmLinha(admin.TabularInline):
+    model = DiagnosticoPagina
+    extra = 0
+    can_delete = False
+    fields = (
+        "numero_pagina",
+        "rota",
+        "tipo_pagina",
+        "possui_texto_nativo",
+        "quantidade_caracteres",
+        "quantidade_imagens",
+        "tabela_suspeita",
+        "mapa_suspeito",
+    )
+    readonly_fields = fields
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+class ArtefatoProcessadoEmLinha(admin.TabularInline):
+    model = ArtefatoProcessado
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        "tipo",
+        "arquivo",
+        "sha256",
+        "tamanho_bytes",
+        "mime_type",
+        "criado_em",
+    )
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(ProcessamentoDocumento)
+class AdministracaoProcessamentoDocumento(admin.ModelAdmin):
+    list_display = (
+        "versao_documento",
+        "etapa",
+        "status",
+        "rota_documento",
+        "ferramenta",
+        "versao_ferramenta",
+        "criado_em",
+    )
+    list_filter = ("etapa", "status", "rota_documento", "ferramenta")
+    search_fields = (
+        "versao_documento__nome_original",
+        "versao_documento__documento__titulo",
+        "versao_documento__sha256",
+    )
+    readonly_fields = (
+        "versao_documento",
+        "etapa",
+        "status",
+        "rota_documento",
+        "ferramenta",
+        "versao_ferramenta",
+        "versao_codigo",
+        "parametros",
+        "metricas",
+        "avisos",
+        "mensagem_erro",
+        "iniciado_em",
+        "concluido_em",
+        "duracao_segundos",
+        "criado_em",
+        "atualizado_em",
+    )
+    inlines = (DiagnosticoPaginaEmLinha, ArtefatoProcessadoEmLinha)
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(DiagnosticoPagina)
+class AdministracaoDiagnosticoPagina(admin.ModelAdmin):
+    list_display = (
+        "processamento",
+        "numero_pagina",
+        "rota",
+        "tipo_pagina",
+        "quantidade_caracteres",
+        "quantidade_imagens",
+    )
+    list_filter = ("rota", "tipo_pagina", "tabela_suspeita", "mapa_suspeito")
+    readonly_fields = (
+        "processamento",
+        "numero_pagina",
+        "rota",
+        "tipo_pagina",
+        "possui_texto_nativo",
+        "quantidade_caracteres",
+        "quantidade_imagens",
+        "tabela_suspeita",
+        "mapa_suspeito",
+        "modo_extracao",
+        "texto_rotacionado",
+        "avisos",
+        "dados_tecnicos",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(ArtefatoProcessado)
+class AdministracaoArtefatoProcessado(admin.ModelAdmin):
+    list_display = ("processamento", "tipo", "mime_type", "tamanho_bytes", "criado_em")
+    list_filter = ("tipo", "mime_type")
+    search_fields = ("sha256", "processamento__versao_documento__nome_original")
+    readonly_fields = (
+        "processamento",
+        "tipo",
+        "arquivo",
+        "sha256",
+        "tamanho_bytes",
+        "mime_type",
+        "metadados",
+        "criado_em",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
