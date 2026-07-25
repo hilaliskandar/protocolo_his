@@ -6,6 +6,7 @@ from collections import Counter
 from django.db.models import Count, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, render
+from markdown_it import MarkdownIt
 
 from .models import (
     AplicacaoMunicipal,
@@ -16,6 +17,27 @@ from .models import (
     ProcessamentoDocumento,
     VersaoDocumento,
 )
+
+LIMITE_VISUALIZACAO_TEXTO = 5 * 1024 * 1024
+MODOS_LEITOR = {"pdf", "markdown", "comparacao"}
+
+
+def _ler_arquivo_textual(artefato: ArtefatoProcessado) -> tuple[str | None, str | None]:
+    if artefato.tamanho_bytes > LIMITE_VISUALIZACAO_TEXTO:
+        return None, "Arquivo maior que 5 MB; use o acesso ao arquivo integral."
+    try:
+        with artefato.arquivo.open("rb") as arquivo:
+            return arquivo.read().decode("utf-8", errors="replace"), None
+    except OSError as erro:
+        return None, str(erro)
+
+
+def _renderizar_markdown_seguro(conteudo: str) -> str:
+    renderizador = MarkdownIt(
+        "commonmark",
+        {"html": False, "linkify": False, "typographer": False},
+    )
+    return renderizador.render(conteudo)
 
 
 def inicio(request):
@@ -104,6 +126,66 @@ def detalhe_documento(request, pk: int):
     )
 
 
+def leitor_documento(request, pk: int):
+    documento = get_object_or_404(
+        DocumentoNormativo.objects.select_related("tipo", "aplicacao__municipio").prefetch_related(
+            "versoes__processamentos__artefatos"
+        ),
+        pk=pk,
+    )
+    modo = request.GET.get("modo", "pdf").strip().lower()
+    if modo not in MODOS_LEITOR:
+        modo = "pdf"
+
+    versao = documento.versoes.order_by("-versao", "-criado_em").first()
+    artefato_markdown = (
+        ArtefatoProcessado.objects.filter(
+            processamento__versao_documento__documento=documento,
+            processamento__status=ProcessamentoDocumento.Status.CONCLUIDO,
+            tipo=ArtefatoProcessado.Tipo.MARKDOWN,
+        )
+        .select_related("processamento")
+        .order_by("-criado_em", "-pk")
+        .first()
+    )
+
+    markdown_html = None
+    markdown_bruto = None
+    erro_markdown = None
+    if artefato_markdown:
+        markdown_bruto, erro_markdown = _ler_arquivo_textual(artefato_markdown)
+        if markdown_bruto is not None:
+            markdown_html = _renderizar_markdown_seguro(markdown_bruto)
+
+    contexto = {
+        "documento": documento,
+        "versao": versao,
+        "modo": modo,
+        "artefato_markdown": artefato_markdown,
+        "markdown_html": markdown_html,
+        "markdown_bruto": markdown_bruto,
+        "erro_markdown": erro_markdown,
+        "pdf_disponivel": bool(versao and versao.arquivo),
+        "markdown_disponivel": markdown_html is not None,
+    }
+    return render(request, "applications/leitor_documento.html", contexto)
+
+
+def exibir_pdf(request, pk: int):
+    versao = get_object_or_404(VersaoDocumento.objects.select_related("documento"), pk=pk)
+    if versao.mime_type and versao.mime_type != "application/pdf":
+        raise Http404("A versão selecionada não é um PDF.")
+    try:
+        arquivo = versao.arquivo.open("rb")
+    except OSError as erro:
+        raise Http404("PDF indisponível.") from erro
+    nome = versao.nome_original or versao.arquivo.name.rsplit("/", 1)[-1]
+    resposta = FileResponse(arquivo, content_type="application/pdf")
+    resposta["Content-Disposition"] = f'inline; filename="{nome}"'
+    resposta["X-Content-Type-Options"] = "nosniff"
+    return resposta
+
+
 def detalhe_processamento(request, pk: int):
     processamento = get_object_or_404(
         ProcessamentoDocumento.objects.select_related(
@@ -177,20 +259,16 @@ def detalhe_artefato(request, pk: int):
         "application/json",
         "application/x-ndjson",
     }:
-        try:
-            if artefato.tamanho_bytes > 5 * 1024 * 1024:
-                erro_leitura = "Arquivo maior que 5 MB; use o acesso ao arquivo integral."
-            else:
-                with artefato.arquivo.open("rb") as arquivo:
-                    conteudo = arquivo.read().decode("utf-8", errors="replace")
-                if artefato.mime_type == "application/json":
-                    conteudo_json = json.dumps(
-                        json.loads(conteudo),
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-        except (OSError, ValueError, json.JSONDecodeError) as erro:
-            erro_leitura = str(erro)
+        conteudo, erro_leitura = _ler_arquivo_textual(artefato)
+        if conteudo is not None and artefato.mime_type == "application/json":
+            try:
+                conteudo_json = json.dumps(
+                    json.loads(conteudo),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            except json.JSONDecodeError as erro:
+                erro_leitura = str(erro)
     return render(
         request,
         "applications/detalhe_artefato.html",
