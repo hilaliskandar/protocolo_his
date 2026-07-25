@@ -30,6 +30,9 @@ dev = [
 qualificacao = [
   "conversor-his @ git+https://github.com/hilaliskandar/conversor-his.git@de39b9f1f86bd089dad9fcc5d95663a2b0600710",
 ]
+observabilidade-ia = [
+  "tiktoken>=0.8,<1",
+]
 ml = [
   "scikit-learn>=1.7,<2",
   "duckdb>=1.3,<2",
@@ -52,6 +55,7 @@ include = [
   "/applications",
   "/schemas",
   "/docs",
+  "/scripts",
   "/manage.py",
   "/README.md",
   "/LICENSE",
