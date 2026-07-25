@@ -1,0 +1,9 @@
+{% extends "applications/base.html" %}
+{% block title %}{{ artefato.get_tipo_display }} — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / <a href="{% url 'detalhe_processamento' artefato.processamento.pk %}">Processamento #{{ artefato.processamento.pk }}</a> / {{ artefato.get_tipo_display }}</div>
+<h1>{{ artefato.get_tipo_display }}</h1>
+<p class="subtitulo">{{ artefato.processamento.versao_documento.documento }}</p>
+<div class="grade"><section class="painel"><h2>Metadados</h2><dl><dt>Tipo MIME</dt><dd>{{ artefato.mime_type }}</dd><dt>Tamanho</dt><dd>{{ artefato.tamanho_bytes }} bytes</dd><dt>SHA-256</dt><dd><code>{{ artefato.sha256 }}</code></dd><dt>Criado em</dt><dd>{{ artefato.criado_em }}</dd></dl><div class="acoes"><a class="botao" href="{% url 'baixar_artefato' artefato.pk %}">Baixar arquivo integral</a></div></section><section class="painel"><h2>Metadados adicionais</h2>{% if artefato.metadados %}<dl>{% for chave,valor in artefato.metadados.items %}<dt>{{ chave }}</dt><dd>{{ valor }}</dd>{% endfor %}</dl>{% else %}<p class="vazio">Sem metadados adicionais.</p>{% endif %}</section></div>
+<section class="painel" style="margin-top:1rem"><h2>Conteúdo</h2>{% if erro_leitura %}<p class="alerta">{{ erro_leitura }}</p>{% elif conteudo_json %}<pre>{{ conteudo_json }}</pre>{% elif conteudo %}<pre>{{ conteudo }}</pre>{% else %}<p class="vazio">Este formato ainda não possui visualização embutida.</p>{% endif %}</section>
+{% endblock %}
