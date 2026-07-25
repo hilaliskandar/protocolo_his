@@ -1,0 +1,56 @@
+name: Documentação
+
+on:
+  push:
+    branches:
+      - main
+      - "incremento/**"
+    paths:
+      - "docs/decisoes-tecnologicas.md"
+      - "scripts/sincronizar_apendice_readme.py"
+      - ".github/workflows/documentacao.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: documentacao-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sincronizar-readme:
+    name: Sincronizar apêndice tecnológico
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Atualizar README
+        run: python scripts/sincronizar_apendice_readme.py
+
+      - name: Verificar alteração
+        id: diff
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commitar README sincronizado
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Sincronizar apêndice tecnológico no README"
+          git push

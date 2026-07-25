@@ -1,0 +1,67 @@
+name: Publicar Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/wiki/**"
+      - "docs/decisoes-tecnologicas.md"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wiki-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    name: Sincronizar páginas da Wiki
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+
+      - name: Verificar token da Wiki
+        env:
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN }}
+        run: |
+          if [ -z "$WIKI_TOKEN" ]; then
+            echo "O segredo WIKI_TOKEN não foi configurado."
+            echo "Crie-o em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Preparar páginas
+        run: |
+          mkdir -p .wiki-src
+          cp docs/wiki/*.md .wiki-src/
+          cp docs/decisoes-tecnologicas.md .wiki-src/Decisoes-Tecnologicas.md
+
+      - name: Clonar repositório da Wiki
+        env:
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${WIKI_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git" .wiki-repo
+
+      - name: Sincronizar conteúdo
+        run: |
+          find .wiki-repo -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp .wiki-src/*.md .wiki-repo/
+
+      - name: Publicar alterações
+        working-directory: .wiki-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "A Wiki já está sincronizada."
+            exit 0
+          fi
+          git commit -m "Sincronizar documentação da Plataforma Protocolo HIS"
+          git push
