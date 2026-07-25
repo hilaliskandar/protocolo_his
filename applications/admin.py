@@ -1,12 +1,19 @@
 from django.contrib import admin
 
 from .models import (
+    AdjudicacaoDocumental,
+    AnexoNormativo,
     AplicacaoMunicipal,
     ArtefatoProcessado,
+    ArtigoNormativo,
+    AtoNormativo,
     DiagnosticoPagina,
     DocumentoNormativo,
     Municipio,
+    OcorrenciaDocumental,
     ProcessamentoDocumento,
+    ReleaseCorpus,
+    ReleaseCorpusDocumento,
     TipoNormativo,
     VersaoDocumento,
 )
@@ -260,3 +267,150 @@ class AdministracaoArtefatoProcessado(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None) -> bool:
         return False
+
+
+class ArtigoNormativoEmLinha(admin.TabularInline):
+    model = ArtigoNormativo
+    extra = 0
+    fields = (
+        "rotulo",
+        "pagina_inicial",
+        "pagina_final",
+        "status_sequencia",
+        "status_auditoria",
+        "fonte_pos_bloco",
+    )
+    readonly_fields = fields
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+class AnexoNormativoEmLinha(admin.TabularInline):
+    model = AnexoNormativo
+    extra = 0
+    fields = ("titulo", "tipo", "pagina_inicial", "pagina_final", "status")
+    readonly_fields = fields
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(AtoNormativo)
+class AdministracaoAtoNormativo(admin.ModelAdmin):
+    list_display = (
+        "identificador",
+        "versao_documento",
+        "natureza_texto",
+        "pagina_inicial",
+        "pagina_final",
+        "status_auditoria",
+    )
+    list_filter = ("natureza_texto", "status_auditoria", "ano")
+    search_fields = (
+        "identificador",
+        "especie",
+        "numero",
+        "ementa",
+        "versao_documento__documento__titulo",
+    )
+    autocomplete_fields = ("versao_documento",)
+    inlines = (ArtigoNormativoEmLinha, AnexoNormativoEmLinha)
+
+
+@admin.register(ArtigoNormativo)
+class AdministracaoArtigoNormativo(admin.ModelAdmin):
+    list_display = (
+        "identificador",
+        "ato",
+        "rotulo",
+        "pagina_inicial",
+        "pagina_final",
+        "status_sequencia",
+        "status_auditoria",
+        "fonte_pos_bloco",
+    )
+    list_filter = (
+        "status_sequencia",
+        "status_auditoria",
+        "heading_encontrado",
+        "fonte_pos_bloco",
+    )
+    search_fields = ("identificador", "rotulo", "numero_textual", "texto", "ato__identificador")
+    autocomplete_fields = ("ato",)
+    readonly_fields = ("sha256_texto", "criado_em", "atualizado_em")
+
+
+@admin.register(AnexoNormativo)
+class AdministracaoAnexoNormativo(admin.ModelAdmin):
+    list_display = ("identificador", "ato", "titulo", "tipo", "status", "pagina_inicial")
+    list_filter = ("tipo", "status")
+    search_fields = ("identificador", "titulo", "ato__identificador")
+    autocomplete_fields = ("ato", "artigo_referencia")
+
+
+class AdjudicacaoDocumentalEmLinha(admin.StackedInline):
+    model = AdjudicacaoDocumental
+    extra = 0
+    max_num = 1
+    show_change_link = True
+
+
+@admin.register(OcorrenciaDocumental)
+class AdministracaoOcorrenciaDocumental(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "categoria",
+        "severidade",
+        "estado",
+        "versao_documento",
+        "pagina",
+        "bloqueia_release",
+    )
+    list_filter = ("severidade", "estado", "categoria")
+    search_fields = (
+        "descricao",
+        "decisao",
+        "versao_documento__documento__titulo",
+        "ato__identificador",
+        "artigo__identificador",
+    )
+    autocomplete_fields = ("versao_documento", "ato", "artigo", "anexo", "resolvida_por")
+    inlines = (AdjudicacaoDocumentalEmLinha,)
+
+    @admin.display(boolean=True, description="Bloqueia release")
+    def bloqueia_release(self, ocorrencia: OcorrenciaDocumental) -> bool:
+        return ocorrencia.bloqueia_release
+
+
+@admin.register(AdjudicacaoDocumental)
+class AdministracaoAdjudicacaoDocumental(admin.ModelAdmin):
+    list_display = ("ocorrencia", "estado_resultante", "responsavel", "criado_em")
+    list_filter = ("estado_resultante",)
+    search_fields = ("decisao", "fundamento", "ocorrencia__descricao")
+    autocomplete_fields = ("ocorrencia", "responsavel")
+
+
+class ReleaseCorpusDocumentoEmLinha(admin.TabularInline):
+    model = ReleaseCorpusDocumento
+    extra = 0
+    autocomplete_fields = ("versao_documento",)
+
+
+@admin.register(ReleaseCorpus)
+class AdministracaoReleaseCorpus(admin.ModelAdmin):
+    list_display = (
+        "aplicacao",
+        "versao",
+        "estado",
+        "status_indexacao",
+        "status_validacao",
+        "liberado_em",
+    )
+    list_filter = ("estado", "status_indexacao", "status_validacao")
+    search_fields = ("aplicacao__titulo", "aplicacao__municipio__nome", "versao", "manifesto_sha256")
+    autocomplete_fields = ("aplicacao", "liberado_por")
+    readonly_fields = ("criado_em", "atualizado_em")
+    inlines = (ReleaseCorpusDocumentoEmLinha,)
