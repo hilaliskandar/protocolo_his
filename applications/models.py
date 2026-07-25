@@ -14,6 +14,13 @@ def caminho_arquivo_documento(instance: VersaoDocumento, nome_arquivo: str) -> s
     return f"immutable/documentos/{instance.documento_id}/{identificador}{extensao}"
 
 
+def caminho_artefato_processado(instance: ArtefatoProcessado, nome_arquivo: str) -> str:
+    """Gera caminho estável para artefatos derivados de um processamento."""
+    extensao = Path(nome_arquivo).suffix.lower() or ".bin"
+    identificador = instance.sha256 or "hash-pendente"
+    return f"derived/processamentos/{instance.processamento_id}/{identificador}{extensao}"
+
+
 class RegistroTemporal(models.Model):
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
@@ -242,3 +249,123 @@ class VersaoDocumento(models.Model):
                 self.duplicado_de = None
                 self.situacao_ingestao = self.SituacaoIngestao.ORIGINAL
         super().save(*args, **kwargs)
+
+
+class ProcessamentoDocumento(RegistroTemporal):
+    class Etapa(models.TextChoices):
+        QUALIFICACAO = "qualificacao", "Qualificação documental"
+        CONVERSAO = "conversao", "Conversão"
+        VALIDACAO = "validacao", "Validação"
+
+    class Status(models.TextChoices):
+        PENDENTE = "pendente", "Pendente"
+        EM_EXECUCAO = "em_execucao", "Em execução"
+        CONCLUIDO = "concluido", "Concluído"
+        FALHOU = "falhou", "Falhou"
+
+    class RotaDocumento(models.TextChoices):
+        TEXTO_NATIVO = "texto_nativo", "Texto nativo"
+        OCR = "ocr", "OCR"
+        MISTO = "misto", "Misto"
+        VISUAL_COMPLEXO = "visual_complexo", "Visual complexo"
+        MANUAL = "manual", "Revisão manual"
+
+    versao_documento = models.ForeignKey(
+        VersaoDocumento,
+        on_delete=models.CASCADE,
+        related_name="processamentos",
+    )
+    etapa = models.CharField(max_length=20, choices=Etapa.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDENTE)
+    rota_documento = models.CharField(
+        max_length=24,
+        choices=RotaDocumento.choices,
+        blank=True,
+    )
+    ferramenta = models.CharField(max_length=120)
+    versao_ferramenta = models.CharField(max_length=80, blank=True)
+    versao_codigo = models.CharField(max_length=64, blank=True)
+    parametros = models.JSONField(default=dict, blank=True)
+    metricas = models.JSONField(default=dict, blank=True)
+    avisos = models.JSONField(default=list, blank=True)
+    mensagem_erro = models.TextField(blank=True)
+    iniciado_em = models.DateTimeField(blank=True, null=True)
+    concluido_em = models.DateTimeField(blank=True, null=True)
+    duracao_segundos = models.FloatField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["-criado_em", "-pk"]
+        verbose_name = "processamento documental"
+        verbose_name_plural = "processamentos documentais"
+
+    def __str__(self) -> str:
+        return f"{self.versao_documento} — {self.get_etapa_display()} — {self.get_status_display()}"
+
+
+class DiagnosticoPagina(models.Model):
+    processamento = models.ForeignKey(
+        ProcessamentoDocumento,
+        on_delete=models.CASCADE,
+        related_name="diagnosticos_paginas",
+    )
+    numero_pagina = models.PositiveIntegerField()
+    rota = models.CharField(max_length=24)
+    tipo_pagina = models.CharField(max_length=40)
+    possui_texto_nativo = models.BooleanField(default=False)
+    quantidade_caracteres = models.PositiveIntegerField(default=0)
+    quantidade_imagens = models.PositiveIntegerField(default=0)
+    tabela_suspeita = models.BooleanField(default=False)
+    mapa_suspeito = models.BooleanField(default=False)
+    modo_extracao = models.CharField(max_length=40, blank=True)
+    texto_rotacionado = models.BooleanField(default=False)
+    avisos = models.JSONField(default=list, blank=True)
+    dados_tecnicos = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["processamento", "numero_pagina"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["processamento", "numero_pagina"],
+                name="diagnostico_pagina_unico_processamento",
+            )
+        ]
+        verbose_name = "diagnóstico de página"
+        verbose_name_plural = "diagnósticos de páginas"
+
+    def __str__(self) -> str:
+        return f"{self.processamento} — página {self.numero_pagina}"
+
+
+class ArtefatoProcessado(models.Model):
+    class Tipo(models.TextChoices):
+        DIAGNOSTICO_JSON = "diagnostico_json", "Diagnóstico JSON"
+        MARKDOWN = "markdown", "Markdown"
+        LOG = "log", "Log"
+        OUTRO = "outro", "Outro"
+
+    processamento = models.ForeignKey(
+        ProcessamentoDocumento,
+        on_delete=models.CASCADE,
+        related_name="artefatos",
+    )
+    tipo = models.CharField(max_length=24, choices=Tipo.choices)
+    arquivo = models.FileField(upload_to=caminho_artefato_processado)
+    sha256 = models.CharField(max_length=64, editable=False, db_index=True)
+    tamanho_bytes = models.PositiveBigIntegerField(editable=False)
+    mime_type = models.CharField(max_length=120)
+    metadados = models.JSONField(default=dict, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["processamento", "tipo"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["processamento", "tipo"],
+                name="artefato_tipo_unico_processamento",
+            )
+        ]
+        verbose_name = "artefato processado"
+        verbose_name_plural = "artefatos processados"
+
+    def __str__(self) -> str:
+        return f"{self.processamento} — {self.get_tipo_display()}"
