@@ -265,7 +265,7 @@ flowchart TD
 
 ## As vinte variáveis
 
-A matriz oficial possui vinte variáveis distribuídas em cinco blocos. A variável **PD-06 — Compatibilização com a política habitacional e com os planos setoriais** integra o conjunto oficial; sua ausência em sumários anteriores decorreu de omissão editorial.
+A matriz oficial possui vinte variáveis distribuídas em cinco blocos.
 
 ### Plano Diretor — PD-01 a PD-06
 
