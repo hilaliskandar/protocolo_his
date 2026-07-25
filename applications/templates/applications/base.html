@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Plataforma Protocolo HIS{% endblock %}</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            --fundo: #f3f5f7;
+            --superficie: #ffffff;
+            --texto: #1f2933;
+            --muted: #52606d;
+            --borda: #d9dee5;
+            --primaria: #263b52;
+            --primaria-clara: #e8edf2;
+            --sucesso: #176b45;
+            --alerta: #8a5a00;
+            --erro: #9b2c2c;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--fundo); color: var(--texto); }
+        header { background: var(--superficie); border-bottom: 1px solid var(--borda); }
+        .cabecalho { max-width: 1240px; margin: 0 auto; padding: 1.2rem 2rem; display: flex; gap: 2rem; align-items: center; justify-content: space-between; }
+        .marca { color: var(--texto); text-decoration: none; font-weight: 750; font-size: 1.25rem; }
+        nav { display: flex; flex-wrap: wrap; gap: .45rem; }
+        nav a { color: var(--primaria); text-decoration: none; padding: .55rem .75rem; border-radius: 7px; }
+        nav a:hover { background: var(--primaria-clara); }
+        main { max-width: 1240px; margin: 0 auto; padding: 2rem; }
+        h1 { margin: 0 0 .5rem; font-size: 1.9rem; }
+        h2 { margin-top: 0; }
+        a { color: #174f7a; }
+        .subtitulo, .muted { color: var(--muted); }
+        .breadcrumb { margin-bottom: 1.25rem; color: var(--muted); font-size: .92rem; }
+        .breadcrumb a { color: var(--muted); }
+        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+        .card, .painel { background: var(--superficie); border: 1px solid var(--borda); border-radius: 10px; padding: 1.2rem; }
+        .numero { display: block; font-size: 1.85rem; font-weight: 750; margin-top: .35rem; }
+        .grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1rem; }
+        .acoes { display: flex; gap: .65rem; flex-wrap: wrap; margin: 1rem 0; }
+        .botao { display: inline-block; padding: .65rem .9rem; border: 0; border-radius: 7px; background: var(--primaria); color: white; text-decoration: none; cursor: pointer; }
+        .botao.secundario { background: var(--primaria-clara); color: var(--primaria); }
+        .status { display: inline-block; padding: .25rem .55rem; border-radius: 999px; background: var(--primaria-clara); font-size: .84rem; white-space: nowrap; }
+        .status.concluido, .status.verificado { background: #dff3e8; color: var(--sucesso); }
+        .status.falhou, .status.quarentena { background: #fde5e5; color: var(--erro); }
+        .status.em_execucao { background: #fff1ce; color: var(--alerta); }
+        .tabela-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; background: var(--superficie); }
+        th, td { padding: .72rem; border-bottom: 1px solid var(--borda); text-align: left; vertical-align: top; }
+        th { background: #f8fafb; color: #34495e; font-size: .88rem; }
+        tr:hover td { background: #fbfcfd; }
+        dl { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: .55rem 1rem; margin: 0; }
+        dt { font-weight: 650; color: #34495e; }
+        dd { margin: 0; overflow-wrap: anywhere; }
+        pre { background: #17212b; color: #e8edf2; border-radius: 8px; padding: 1rem; overflow: auto; max-height: 680px; white-space: pre-wrap; word-break: break-word; }
+        details { border: 1px solid var(--borda); border-radius: 8px; padding: .75rem 1rem; background: var(--superficie); margin: .7rem 0; }
+        summary { cursor: pointer; font-weight: 650; }
+        .filtros { display: flex; flex-wrap: wrap; gap: .7rem; align-items: end; margin: 1rem 0; }
+        .filtros label { display: grid; gap: .25rem; color: var(--muted); font-size: .85rem; }
+        select, input { padding: .55rem; border: 1px solid var(--borda); border-radius: 6px; background: white; }
+        .vazio { color: var(--muted); font-style: italic; }
+        .alerta { border-left: 4px solid var(--alerta); background: #fff8e8; padding: .8rem 1rem; }
+        .erro { border-left: 4px solid var(--erro); background: #fff0f0; padding: .8rem 1rem; }
+        footer { max-width: 1240px; margin: 0 auto; padding: 1rem 2rem 2rem; color: var(--muted); font-size: .85rem; }
+        @media (max-width: 700px) {
+            .cabecalho { padding: 1rem; align-items: flex-start; flex-direction: column; gap: .6rem; }
+            main { padding: 1rem; }
+            dl { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="cabecalho">
+        <a class="marca" href="{% url 'inicio' %}">Plataforma Protocolo HIS</a>
+        <nav aria-label="Navegação principal">
+            <a href="{% url 'inicio' %}">Painel</a>
+            <a href="{% url 'lista_aplicacoes' %}">Aplicações</a>
+            <a href="/admin/">Administração</a>
+        </nav>
+    </div>
+</header>
+<main>
+    {% block content %}{% endblock %}
+</main>
+<footer>Execução auditável da avaliação da receptividade normativa à Habitação de Interesse Social.</footer>
+</body>
+</html>
