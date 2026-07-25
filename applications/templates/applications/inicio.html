@@ -55,7 +55,12 @@
             {% for processamento in processamentos_recentes %}
                 <tr>
                     <td>{{ processamento.versao_documento.documento.aplicacao.municipio }}</td>
-                    <td><a href="{% url 'detalhe_processamento' processamento.pk %}">{{ processamento.versao_documento.documento }}</a></td>
+                    <td>
+                        <a href="{% url 'detalhe_processamento' processamento.pk %}">
+                            <strong>{{ processamento.versao_documento.documento.titulo }}</strong><br>
+                            <span class="muted">{{ processamento.versao_documento.documento }}</span>
+                        </a>
+                    </td>
                     <td>{{ processamento.get_etapa_display }}</td>
                     <td><span class="status {{ processamento.status }}">{{ processamento.get_status_display }}</span></td>
                     <td>{{ processamento.get_rota_documento_display|default:"—" }}</td>
