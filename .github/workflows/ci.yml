@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "incremento/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  DJANGO_SECRET_KEY: ci-only-secret-key
+  DJANGO_DEBUG: "false"
+  PROTOCOL_DATA_ROOT: ${{ github.workspace }}/.ci-data
+
+jobs:
+  quality-and-tests:
+    name: Qualidade e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Atualizar ferramentas de empacotamento
+        run: python -m pip install --upgrade pip setuptools wheel
+
+      - name: Instalar projeto e dependências de desenvolvimento
+        run: python -m pip install -e ".[dev,qualificacao]"
+
+      - name: Verificar dependências instaladas
+        run: python -m pip check
+
+      - name: Executar Ruff
+        run: python -m ruff check .
+
+      - name: Executar verificações do Django
+        run: python manage.py check --settings=config.settings_test
+
+      - name: Verificar migrações pendentes
+        run: python manage.py makemigrations --check --dry-run --settings=config.settings_test
+
+      - name: Executar testes
+        run: |
+          mkdir -p artifacts
+          python -m pytest -q --junitxml=artifacts/pytest.xml
+
+      - name: Publicar relatório de testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results-${{ github.run_id }}
+          path: artifacts/pytest.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+  postgres-migrations:
+    name: PostgreSQL e migrações
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: protocolo_his
+          POSTGRES_USER: protocolo_his
+          POSTGRES_PASSWORD: protocolo_his
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U protocolo_his -d protocolo_his"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_DB: protocolo_his
+      POSTGRES_USER: protocolo_his
+      POSTGRES_PASSWORD: protocolo_his
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Atualizar ferramentas de empacotamento
+        run: python -m pip install --upgrade pip setuptools wheel
+
+      - name: Instalar projeto
+        run: python -m pip install -e ".[dev]"
+
+      - name: Verificar configuração com PostgreSQL
+        run: python manage.py check
+
+      - name: Aplicar migrações em banco vazio
+        run: python manage.py migrate --noinput
+
+      - name: Confirmar ausência de migrações não versionadas
+        run: python manage.py makemigrations --check --dry-run
