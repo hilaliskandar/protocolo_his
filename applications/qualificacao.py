@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass
 from hashlib import sha256
@@ -8,7 +9,7 @@ from importlib import metadata
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import monotonic
-from typing import Any, Iterator
+from typing import Any
 
 from django.core.files.base import ContentFile
 from django.db import transaction
