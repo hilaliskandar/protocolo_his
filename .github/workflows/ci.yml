@@ -50,7 +50,13 @@ jobs:
         run: python -m pip check
 
       - name: Executar Ruff
-        run: python -m ruff check .
+        run: |
+          mkdir -p artifacts
+          set +e
+          python -m ruff check . --output-format=json > artifacts/ruff.json
+          status=$?
+          python -m ruff check . || true
+          exit $status
 
       - name: Executar verificações do Django
         run: python manage.py check --settings=config.settings_test
@@ -63,12 +69,14 @@ jobs:
           mkdir -p artifacts
           python -m pytest -q --junitxml=artifacts/pytest.xml
 
-      - name: Publicar relatório de testes
+      - name: Publicar diagnósticos de qualidade
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-results-${{ github.run_id }}
-          path: artifacts/pytest.xml
+          name: quality-results-${{ github.run_id }}
+          path: |
+            artifacts/ruff.json
+            artifacts/pytest.xml
           if-no-files-found: warn
           retention-days: 14
 
