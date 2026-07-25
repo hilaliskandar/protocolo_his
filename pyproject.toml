@@ -26,7 +26,7 @@ dev = [
   "ruff>=0.12,<1",
   "mypy>=1.17,<2",
 ]
-qualification = [
+qualificacao = [
   "conversor-his @ git+https://github.com/hilaliskandar/conversor-his.git@de39b9f1f86bd089dad9fcc5d95663a2b0600710",
 ]
 ml = [
