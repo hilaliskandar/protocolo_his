@@ -1,58 +1,71 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Plataforma Protocolo HIS</title>
-    <style>
-        :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; }
-        body { margin: 0; background: #f4f5f7; color: #1f2933; }
-        header { background: #ffffff; border-bottom: 1px solid #d9dee5; padding: 1.5rem 2rem; }
-        main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
-        h1 { margin: 0 0 .35rem; font-size: 1.8rem; }
-        p { line-height: 1.55; }
-        .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 2rem 0; }
-        .card { background: white; border: 1px solid #d9dee5; border-radius: 10px; padding: 1.25rem; }
-        .numero { display: block; font-size: 2rem; font-weight: 700; margin-top: .4rem; }
-        .painel { background: white; border: 1px solid #d9dee5; border-radius: 10px; padding: 1.5rem; }
-        .acoes { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1.25rem; }
-        .botao { display: inline-block; padding: .7rem 1rem; border-radius: 7px; background: #263b52; color: white; text-decoration: none; }
-        .secundario { background: #e8edf2; color: #263b52; }
-        ul { padding-left: 1.2rem; }
-        small { color: #52606d; }
-    </style>
-</head>
-<body>
-<header>
-    <h1>Plataforma Protocolo HIS</h1>
-    <small>Execução auditável da avaliação da receptividade normativa à Habitação de Interesse Social</small>
-</header>
-<main>
-    <p>Esta é a base operacional do MVP. O primeiro fluxo registra municípios, aplicações e versões imutáveis dos documentos normativos, com hash SHA-256 para rastreabilidade.</p>
+{% extends "applications/base.html" %}
+{% block title %}Painel — Protocolo HIS{% endblock %}
+{% block content %}
+<h1>Painel do pipeline</h1>
+<p class="subtitulo">Acompanhamento do corpus, da qualificação documental e dos artefatos produzidos.</p>
 
-    <section class="cards" aria-label="Resumo da base">
-        <div class="card">Municípios <span class="numero">{{ total_municipios }}</span></div>
-        <div class="card">Aplicações <span class="numero">{{ total_aplicacoes }}</span></div>
-        <div class="card">Documentos <span class="numero">{{ total_documentos }}</span></div>
-        <div class="card">Versões registradas <span class="numero">{{ total_versoes }}</span></div>
-    </section>
+<section class="cards" aria-label="Resumo geral">
+    <div class="card">Municípios <span class="numero">{{ total_municipios }}</span></div>
+    <div class="card">Aplicações <span class="numero">{{ total_aplicacoes }}</span></div>
+    <div class="card">Documentos <span class="numero">{{ total_documentos }}</span></div>
+    <div class="card">Documentos verificados <span class="numero">{{ documentos_verificados }}</span></div>
+    <div class="card">Em quarentena <span class="numero">{{ documentos_quarentena }}</span></div>
+    <div class="card">Processamentos <span class="numero">{{ total_processamentos }}</span></div>
+    <div class="card">Páginas diagnosticadas <span class="numero">{{ total_paginas }}</span></div>
+    <div class="card">Páginas destinadas a OCR <span class="numero">{{ paginas_ocr }}</span></div>
+    <div class="card">Páginas visuais <span class="numero">{{ paginas_visuais }}</span></div>
+</section>
 
+<div class="grade">
     <section class="painel">
         <h2>Aplicações recentes</h2>
         {% if aplicacoes_recentes %}
             <ul>
                 {% for aplicacao in aplicacoes_recentes %}
-                    <li>{{ aplicacao.municipio }} — {{ aplicacao.titulo }} ({{ aplicacao.get_status_display }})</li>
+                    <li><a href="{% url 'detalhe_aplicacao' aplicacao.pk %}">{{ aplicacao.municipio }} — {{ aplicacao.titulo }}</a> <span class="status">{{ aplicacao.get_status_display }}</span></li>
                 {% endfor %}
             </ul>
         {% else %}
-            <p>Nenhuma aplicação cadastrada. Use a administração para iniciar o piloto de Valinhos.</p>
+            <p class="vazio">Nenhuma aplicação cadastrada.</p>
         {% endif %}
+        <div class="acoes"><a class="botao" href="{% url 'lista_aplicacoes' %}">Ver aplicações</a></div>
+    </section>
+
+    <section class="painel">
+        <h2>Estado da base</h2>
+        <dl>
+            <dt>Versões imutáveis</dt><dd>{{ total_versoes }}</dd>
+            <dt>Qualificação</dt><dd>{{ total_processamentos }} execuções registradas</dd>
+            <dt>Leitura técnica</dt><dd>{{ total_paginas }} páginas estruturadas na base</dd>
+        </dl>
         <div class="acoes">
-            <a class="botao" href="/admin/">Abrir administração</a>
-            <a class="botao secundario" href="/health/">Verificar saúde do serviço</a>
+            <a class="botao secundario" href="/admin/">Administração</a>
+            <a class="botao secundario" href="/health/">Saúde do serviço</a>
         </div>
     </section>
-</main>
-</body>
-</html>
+</div>
+
+<section class="painel" style="margin-top:1rem">
+    <h2>Processamentos recentes</h2>
+    {% if processamentos_recentes %}
+    <div class="tabela-wrap">
+        <table>
+            <thead><tr><th>Município</th><th>Documento</th><th>Etapa</th><th>Estado</th><th>Rota</th><th>Páginas</th><th>Duração</th></tr></thead>
+            <tbody>
+            {% for processamento in processamentos_recentes %}
+                <tr>
+                    <td>{{ processamento.versao_documento.documento.aplicacao.municipio }}</td>
+                    <td><a href="{% url 'detalhe_processamento' processamento.pk %}">{{ processamento.versao_documento.documento }}</a></td>
+                    <td>{{ processamento.get_etapa_display }}</td>
+                    <td><span class="status {{ processamento.status }}">{{ processamento.get_status_display }}</span></td>
+                    <td>{{ processamento.get_rota_documento_display|default:"—" }}</td>
+                    <td>{{ processamento.metricas.paginas_total|default:"—" }}</td>
+                    <td>{% if processamento.duracao_segundos %}{{ processamento.duracao_segundos|floatformat:1 }} s{% else %}—{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}<p class="vazio">Nenhum processamento registrado.</p>{% endif %}
+</section>
+{% endblock %}
