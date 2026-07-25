@@ -172,8 +172,12 @@ def _gravar_artefato(processamento: ProcessamentoDocumento, diagnostico: Any) ->
     artefato.save()
 
 
-def _validar_diagnostico(diagnostico: Any) -> None:
+def _validar_diagnostico(diagnostico: Any, hash_esperado: str) -> None:
     paginas = list(diagnostico.pages)
+    if diagnostico.sha256 != hash_esperado:
+        raise ErroQualificacaoDocumento(
+            "O hash calculado pelo motor de diagnóstico não corresponde ao arquivo ingerido."
+        )
     if diagnostico.page_count <= 0:
         raise ErroQualificacaoDocumento("O PDF não possui páginas diagnosticáveis.")
     if len(paginas) != diagnostico.page_count:
@@ -232,7 +236,7 @@ def qualificar_versao(
                 caminho,
                 min_native_chars=int(parametros["min_native_chars"]),
             )
-        _validar_diagnostico(diagnostico)
+        _validar_diagnostico(diagnostico, versao.sha256)
         rota = _classificar_rota(list(diagnostico.pages))
         metricas = _metricas_documento(diagnostico)
 
