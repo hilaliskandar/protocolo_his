@@ -1,0 +1,19 @@
+{% extends "applications/base.html" %}
+{% block title %}Aplicações — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / Aplicações</div>
+<h1>Aplicações municipais</h1>
+<p class="subtitulo">Corpus normativos e etapas do pipeline por município.</p>
+<section class="painel">
+{% if aplicacoes %}
+<div class="tabela-wrap"><table>
+<thead><tr><th>Município</th><th>Aplicação</th><th>Estado</th><th>Documentos</th><th>Processamentos</th></tr></thead>
+<tbody>{% for aplicacao in aplicacoes %}<tr>
+<td>{{ aplicacao.municipio }}</td>
+<td><a href="{% url 'detalhe_aplicacao' aplicacao.pk %}">{{ aplicacao.titulo }}</a></td>
+<td><span class="status">{{ aplicacao.get_status_display }}</span></td>
+<td>{{ aplicacao.total_documentos }}</td><td>{{ aplicacao.total_processamentos }}</td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="vazio">Nenhuma aplicação cadastrada.</p>{% endif %}
+</section>
+{% endblock %}
