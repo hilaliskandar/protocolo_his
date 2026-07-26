@@ -9,12 +9,19 @@ from tempfile import NamedTemporaryFile
 from zipfile import BadZipFile, ZipFile, ZipInfo
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.files import File
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from applications.models import AplicacaoMunicipal, DocumentoNormativo, Municipio, TipoNormativo, VersaoDocumento
+from applications.models import (
+    AplicacaoMunicipal,
+    DocumentoNormativo,
+    Municipio,
+    TipoNormativo,
+    VersaoDocumento,
+)
 
 from .models import ImportacaoLote, ItemImportacaoLote
 
@@ -22,6 +29,18 @@ RE_NUMERO_ANO = [
     re.compile(r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(\d[\d.\-]*)[_\s/-]+(\d{4})", re.I),
     re.compile(r"(\d[\d.]*)[_\s/-]+(\d{4})"),
 ]
+PASTAS_GENERICAS = {
+    "anexo",
+    "anexos",
+    "arquivo",
+    "arquivos",
+    "codigo de obras",
+    "documentos",
+    "legislacao",
+    "leis",
+    "plano diretor",
+    "planos",
+}
 
 
 def _caminho_seguro(info: ZipInfo) -> bool:
@@ -30,8 +49,16 @@ def _caminho_seguro(info: ZipInfo) -> bool:
 
 
 def _municipio_do_caminho(caminho: str) -> str:
-    partes = PurePosixPath(caminho.replace("\\", "/")).parts
-    return partes[-2].strip() if len(partes) >= 2 else ""
+    partes = PurePosixPath(caminho.replace("\\", "/")).parts[:-1]
+    for parte in reversed(partes):
+        candidato = parte.strip()
+        normal = candidato.casefold()
+        if not candidato or normal in PASTAS_GENERICAS:
+            continue
+        if re.match(r"^\d+\s*[-–—]", candidato) or "rm " in normal:
+            continue
+        return candidato
+    return ""
 
 
 def _natureza(nome: str) -> str:
@@ -42,7 +69,7 @@ def _natureza(nome: str) -> str:
         return ItemImportacaoLote.Natureza.PAGINA_INSTITUCIONAL
     if "fragmento" in normal:
         return ItemImportacaoLote.Natureza.FRAGMENTO_NORMATIVO
-    if "anexo" in normal or "anexos" in normal:
+    if "anexo" in normal:
         return ItemImportacaoLote.Natureza.ANEXO_NORMATIVO
     if re.search(r"(?:^|[^0-9])2025[_-]992", normal):
         return ItemImportacaoLote.Natureza.DIARIO_OFICIAL
@@ -54,7 +81,11 @@ def _natureza(nome: str) -> str:
 
 
 def _tipo_codigo(nome: str, natureza: str) -> str:
-    if natureza not in {ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL, ItemImportacaoLote.Natureza.NORMATIVO_FEDERAL}:
+    normativos = {
+        ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL,
+        ItemImportacaoLote.Natureza.NORMATIVO_FEDERAL,
+    }
+    if natureza not in normativos:
         return ""
     normal = nome.casefold()
     if "lei complementar" in normal or "lei_complementar" in normal:
@@ -105,7 +136,11 @@ def _classificar(caminho: str, uf: str) -> dict:
             avisos.append("ano do ato não identificado")
     else:
         avisos.append("natureza documental exige adjudicação antes da criação de ato municipal")
-    pronto = natureza == ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL and bool(municipio and tipo and numero and ano) and confianca >= settings.INGESTAO_CONFIANCA_AUTOMATICA
+    pronto = (
+        natureza == ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL
+        and bool(municipio and tipo and numero and ano)
+        and confianca >= settings.INGESTAO_CONFIANCA_AUTOMATICA
+    )
     return {
         "municipio_candidato": municipio,
         "uf": uf,
@@ -127,25 +162,27 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
     lote.iniciado_em = timezone.now()
     lote.mensagem_erro = ""
     lote.save(update_fields=["status", "iniciado_em", "mensagem_erro", "atualizado_em"])
-    lote.itens.all().delete()
     try:
+        novos_itens: list[ItemImportacaoLote] = []
+        vistos: dict[str, int] = {}
+        avisos_lote: list[str] = []
         with lote.arquivo_zip.open("rb") as arquivo, ZipFile(arquivo) as zip_file:
-            infos = [info for info in zip_file.infolist() if not info.is_dir()]
-            if len(infos) > settings.INGESTAO_MAX_ARQUIVOS:
+            infos = zip_file.infolist()
+            arquivos = [(indice, info) for indice, info in enumerate(infos) if not info.is_dir()]
+            if len(arquivos) > settings.INGESTAO_MAX_ARQUIVOS:
                 raise ValueError("ZIP excede o limite de arquivos permitido.")
-            total_descompactado = sum(info.file_size for info in infos)
+            total_descompactado = sum(info.file_size for _, info in arquivos)
             if total_descompactado > settings.INGESTAO_MAX_DESCOMPACTADO_BYTES:
                 raise ValueError("ZIP excede o limite descompactado permitido.")
-            vistos: dict[str, ItemImportacaoLote] = {}
-            avisos_lote: list[str] = []
-            for info in infos:
+            for indice, info in arquivos:
                 if not _caminho_seguro(info):
                     avisos_lote.append(f"caminho inseguro ignorado: {info.filename}")
                     continue
                 if info.file_size == 0:
                     avisos_lote.append(f"arquivo vazio ignorado: {info.filename}")
                     continue
-                if info.compress_size and info.file_size / info.compress_size > settings.INGESTAO_MAX_RAZAO_COMPACTACAO:
+                razao = info.file_size / max(info.compress_size, 1)
+                if razao > settings.INGESTAO_MAX_RAZAO_COMPACTACAO:
                     avisos_lote.append(f"razão de compactação suspeita: {info.filename}")
                     continue
                 if Path(info.filename).suffix.casefold() != ".pdf":
@@ -159,25 +196,59 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
                             assinatura = bloco[:5]
                         resumo.update(bloco)
                 dados = _classificar(info.filename, lote.uf_padrao)
-                if assinatura != b"%PDF-":
+                assinatura_valida = assinatura == b"%PDF-"
+                if not assinatura_valida:
                     dados["estado"] = ItemImportacaoLote.Estado.REVISAO
                     dados["avisos"].append("assinatura do arquivo não corresponde a PDF")
                 hash_item = resumo.hexdigest()
-                item = ItemImportacaoLote.objects.create(lote=lote, caminho_relativo=info.filename, nome_original=PurePosixPath(info.filename.replace("\\", "/")).name, sha256=hash_item, tamanho_bytes=info.file_size, **dados)
+                item = ItemImportacaoLote(
+                    lote=lote,
+                    indice_arquivo=indice,
+                    caminho_relativo=info.filename,
+                    nome_original=PurePosixPath(info.filename.replace("\\", "/")).name,
+                    sha256=hash_item,
+                    tamanho_bytes=info.file_size,
+                    assinatura_pdf_valida=assinatura_valida,
+                    **dados,
+                )
                 if hash_item in vistos:
                     item.estado = ItemImportacaoLote.Estado.DUPLICADO
-                    item.duplicado_de = vistos[hash_item]
                     item.avisos = [*item.avisos, "conteúdo idêntico a outro item do lote"]
-                    item.save(update_fields=["estado", "duplicado_de", "avisos", "atualizado_em"])
-                else:
-                    vistos[hash_item] = item
+                novos_itens.append(item)
+                vistos.setdefault(hash_item, indice)
+        with transaction.atomic():
+            lote.itens.all().delete()
+            ItemImportacaoLote.objects.bulk_create(novos_itens)
+            primeiros = {
+                item.sha256: item
+                for item in lote.itens.order_by("indice_arquivo")
+                if item.sha256 not in set()
+            }
+            for item in lote.itens.filter(estado=ItemImportacaoLote.Estado.DUPLICADO):
+                original = (
+                    lote.itens.filter(sha256=item.sha256)
+                    .exclude(pk=item.pk)
+                    .order_by("indice_arquivo")
+                    .first()
+                )
+                item.duplicado_de = original
+                item.save(update_fields=["duplicado_de", "atualizado_em"])
             contagem = Counter(lote.itens.values_list("estado", flat=True))
-            lote.metricas = {"arquivos_zip": len(infos), "itens_pdf": lote.itens.count(), "bytes_descompactados": total_descompactado, "prontos": contagem[ItemImportacaoLote.Estado.PRONTO], "revisao": contagem[ItemImportacaoLote.Estado.REVISAO], "duplicados": contagem[ItemImportacaoLote.Estado.DUPLICADO]}
+            lote.metricas = {
+                "arquivos_zip": len(arquivos),
+                "itens_pdf": lote.itens.count(),
+                "bytes_descompactados": total_descompactado,
+                "prontos": contagem[ItemImportacaoLote.Estado.PRONTO],
+                "revisao": contagem[ItemImportacaoLote.Estado.REVISAO],
+                "duplicados": contagem[ItemImportacaoLote.Estado.DUPLICADO],
+            }
             lote.avisos = avisos_lote
             lote.status = ImportacaoLote.Status.INSPECIONADO
             lote.concluido_em = timezone.now()
-            lote.save(update_fields=["metricas", "avisos", "status", "concluido_em", "atualizado_em"])
-            return lote
+            lote.save(
+                update_fields=["metricas", "avisos", "status", "concluido_em", "atualizado_em"]
+            )
+        return lote
     except (BadZipFile, OSError, ValueError) as erro:
         lote.status = ImportacaoLote.Status.FALHOU
         lote.mensagem_erro = str(erro)
@@ -187,11 +258,17 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
 
 
 def _aplicacao_do_item(item: ItemImportacaoLote) -> AplicacaoMunicipal:
-    municipio, _ = Municipio.objects.get_or_create(nome=item.municipio_candidato, uf=item.uf)
+    municipio, _ = Municipio.objects.get_or_create(
+        nome=item.municipio_candidato,
+        uf=item.uf,
+    )
     aplicacao, _ = AplicacaoMunicipal.objects.get_or_create(
         municipio=municipio,
         titulo=f"{item.lote.titulo} — {municipio.nome}",
-        defaults={"descricao": item.lote.descricao, "status": AplicacaoMunicipal.Status.CORPUS_RECEBIDO},
+        defaults={
+            "descricao": item.lote.descricao,
+            "status": AplicacaoMunicipal.Status.CORPUS_RECEBIDO,
+        },
     )
     if aplicacao.status == AplicacaoMunicipal.Status.RASCUNHO:
         aplicacao.status = AplicacaoMunicipal.Status.CORPUS_RECEBIDO
@@ -199,53 +276,126 @@ def _aplicacao_do_item(item: ItemImportacaoLote) -> AplicacaoMunicipal:
     return aplicacao
 
 
+def _arquivo_do_item(zip_file: ZipFile, item: ItemImportacaoLote) -> ZipInfo:
+    infos = zip_file.infolist()
+    if item.indice_arquivo >= len(infos):
+        raise ValueError("Índice do arquivo não existe mais no ZIP original.")
+    info = infos[item.indice_arquivo]
+    if info.filename != item.caminho_relativo or info.file_size != item.tamanho_bytes:
+        raise ValueError("O item não corresponde mais ao manifesto inspecionado.")
+    return info
+
+
 def confirmar_lote(lote: ImportacaoLote) -> dict:
+    if lote.status == ImportacaoLote.Status.CONFIRMADO:
+        return lote.metricas.get("confirmacao", {})
     if lote.status != ImportacaoLote.Status.INSPECIONADO:
         raise ValueError("O lote precisa estar inspecionado antes da confirmação.")
     lote.status = ImportacaoLote.Status.CONFIRMANDO
     lote.save(update_fields=["status", "atualizado_em"])
     resumo = {"confirmados": 0, "falhas": 0, "revisao": 0, "duplicados": 0}
-    with lote.arquivo_zip.open("rb") as arquivo, ZipFile(arquivo) as zip_file:
-        for item in lote.itens.select_related("duplicado_de").order_by("pk"):
-            if item.estado == ItemImportacaoLote.Estado.DUPLICADO:
-                resumo["duplicados"] += 1
-                continue
-            if item.estado != ItemImportacaoLote.Estado.PRONTO:
-                resumo["revisao"] += 1
-                continue
-            try:
-                with transaction.atomic():
-                    tipo = TipoNormativo.objects.get(codigo=item.tipo_normativo_codigo, ativo=True)
-                    aplicacao = _aplicacao_do_item(item)
-                    documento, criado = DocumentoNormativo.objects.get_or_create(
-                        aplicacao=aplicacao,
-                        tipo=tipo,
-                        numero=item.numero_candidato,
-                        ano=item.ano_candidato,
-                        defaults={"titulo": item.titulo_candidato, "data_publicacao": item.data_publicacao_candidata, "status": DocumentoNormativo.Status.RECEBIDO},
-                    )
-                    if not criado and not documento.titulo and item.titulo_candidato:
-                        documento.titulo = item.titulo_candidato
-                        documento.save(update_fields=["titulo", "atualizado_em"])
-                    proxima_versao = (documento.versoes.aggregate(maior=Max("versao"))["maior"] or 0) + 1
-                    with NamedTemporaryFile(suffix=".pdf") as temporario:
-                        with zip_file.open(item.caminho_relativo) as origem:
-                            shutil.copyfileobj(origem, temporario)
-                        temporario.flush()
-                        temporario.seek(0)
-                        versao = VersaoDocumento(documento=documento, versao=proxima_versao, nome_original=item.nome_original, mime_type="application/pdf", origem_recebimento=lote.origem_recebimento, observacoes_ingestao=f"Importado pelo lote {lote.pk}; caminho: {item.caminho_relativo}")
-                        versao.arquivo.save(item.nome_original, File(temporario), save=True)
-                    item.documento_criado = documento
-                    item.versao_criada = versao
-                    item.estado = ItemImportacaoLote.Estado.CONFIRMADO
-                    item.save(update_fields=["documento_criado", "versao_criada", "estado", "atualizado_em"])
+    try:
+        with lote.arquivo_zip.open("rb") as arquivo, ZipFile(arquivo) as zip_file:
+            for item in lote.itens.select_related("duplicado_de").order_by("indice_arquivo"):
+                if item.estado == ItemImportacaoLote.Estado.CONFIRMADO:
                     resumo["confirmados"] += 1
-            except (TipoNormativo.DoesNotExist, KeyError, OSError, ValueError) as erro:
-                item.estado = ItemImportacaoLote.Estado.FALHOU
-                item.avisos = [*item.avisos, str(erro)]
-                item.save(update_fields=["estado", "avisos", "atualizado_em"])
-                resumo["falhas"] += 1
-    lote.status = ImportacaoLote.Status.CONFIRMADO if resumo["falhas"] == 0 else ImportacaoLote.Status.INSPECIONADO
+                    continue
+                if item.estado == ItemImportacaoLote.Estado.DUPLICADO:
+                    resumo["duplicados"] += 1
+                    continue
+                if item.estado != ItemImportacaoLote.Estado.PRONTO:
+                    resumo["revisao"] += 1
+                    continue
+                try:
+                    item.full_clean()
+                    info = _arquivo_do_item(zip_file, item)
+                    with zip_file.open(info) as origem:
+                        conteudo = origem.read()
+                    if not conteudo.startswith(b"%PDF-") or sha256(conteudo).hexdigest() != item.sha256:
+                        raise ValueError("O PDF não corresponde ao hash e à assinatura inspecionados.")
+                    with transaction.atomic():
+                        tipo = TipoNormativo.objects.get(
+                            codigo=item.tipo_normativo_codigo,
+                            ativo=True,
+                        )
+                        aplicacao = _aplicacao_do_item(item)
+                        documento, criado = DocumentoNormativo.objects.get_or_create(
+                            aplicacao=aplicacao,
+                            tipo=tipo,
+                            numero=item.numero_candidato,
+                            ano=item.ano_candidato,
+                            defaults={
+                                "titulo": item.titulo_candidato,
+                                "data_publicacao": item.data_publicacao_candidata,
+                                "status": DocumentoNormativo.Status.RECEBIDO,
+                            },
+                        )
+                        if not criado and not documento.titulo and item.titulo_candidato:
+                            documento.titulo = item.titulo_candidato
+                            documento.save(update_fields=["titulo", "atualizado_em"])
+                        existente = documento.versoes.filter(sha256=item.sha256).first()
+                        if existente:
+                            versao = existente
+                        else:
+                            proxima_versao = (
+                                documento.versoes.aggregate(maior=Max("versao"))["maior"] or 0
+                            ) + 1
+                            with NamedTemporaryFile(suffix=".pdf") as temporario:
+                                temporario.write(conteudo)
+                                temporario.flush()
+                                temporario.seek(0)
+                                versao = VersaoDocumento(
+                                    documento=documento,
+                                    versao=proxima_versao,
+                                    nome_original=item.nome_original,
+                                    mime_type="application/pdf",
+                                    origem_recebimento=lote.origem_recebimento,
+                                    observacoes_ingestao=(
+                                        f"Importado pelo lote {lote.pk}; caminho: "
+                                        f"{item.caminho_relativo}"
+                                    ),
+                                )
+                                versao.arquivo.save(
+                                    item.nome_original,
+                                    File(temporario),
+                                    save=True,
+                                )
+                        item.documento_criado = documento
+                        item.versao_criada = versao
+                        item.estado = ItemImportacaoLote.Estado.CONFIRMADO
+                        item.save(
+                            update_fields=[
+                                "documento_criado",
+                                "versao_criada",
+                                "estado",
+                                "atualizado_em",
+                            ]
+                        )
+                    resumo["confirmados"] += 1
+                except (
+                    TipoNormativo.DoesNotExist,
+                    IntegrityError,
+                    KeyError,
+                    OSError,
+                    ValidationError,
+                    ValueError,
+                ) as erro:
+                    item.estado = ItemImportacaoLote.Estado.FALHOU
+                    item.avisos = [*item.avisos, str(erro)]
+                    item.save(update_fields=["estado", "avisos", "atualizado_em"])
+                    resumo["falhas"] += 1
+    except (BadZipFile, OSError, ValueError) as erro:
+        lote.status = ImportacaoLote.Status.FALHOU
+        lote.mensagem_erro = str(erro)
+        lote.concluido_em = timezone.now()
+        lote.save(update_fields=["status", "mensagem_erro", "concluido_em", "atualizado_em"])
+        raise
+    pendentes = lote.itens.filter(
+        estado__in=[ItemImportacaoLote.Estado.REVISAO, ItemImportacaoLote.Estado.FALHOU]
+    ).exists()
+    lote.status = (
+        ImportacaoLote.Status.INSPECIONADO if pendentes else ImportacaoLote.Status.CONFIRMADO
+    )
     lote.metricas = {**lote.metricas, "confirmacao": resumo}
     lote.concluido_em = timezone.now()
     lote.save(update_fields=["status", "metricas", "concluido_em", "atualizado_em"])
