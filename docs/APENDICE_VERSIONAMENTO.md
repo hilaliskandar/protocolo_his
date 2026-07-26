@@ -1,6 +1,6 @@
 ## Apêndice — versionamento do desenvolvimento
 
-**Versão corrente documentada:** `0.3.7`.
+**Versão corrente documentada:** `0.4.0`.
 
 A plataforma adota uma convenção de versionamento própria para registrar o avanço do protótipo antes da versão estável `1.0.0`.
 
@@ -9,7 +9,7 @@ A plataforma adota uma convenção de versionamento própria para registrar o av
 - **Implementação inicial:** inicia em `0.0.1`.
 - **Incremento de roadmap:** quando uma nova etapa funcional é incorporada, avança-se o componente intermediário: `0.x.0` → `0.(x+1).0`.
 - **Ajuste, aperfeiçoamento ou correção:** dentro da etapa corrente, avança-se o último componente: `0.x.y` → `0.x.(y+1)`.
-- **Teste de alternativa em branch:** recebe uma letra após a versão de referência, por exemplo `0.3.7a`, `0.3.7b` e `0.3.7c`. A letra identifica uma alternativa experimental e não substitui uma versão integrada à `main`.
+- **Teste de alternativa em branch:** recebe uma letra após a versão de referência, por exemplo `0.4.0a`, `0.4.0b` e `0.4.0c`. A letra identifica uma alternativa experimental e não substitui uma versão integrada à `main`.
 - **Integração à `main`:** somente alterações incorporadas à branch principal entram no histórico oficial abaixo.
 
 ### Histórico consolidado
@@ -27,25 +27,26 @@ A plataforma adota uma convenção de versionamento própria para registrar o av
 | `0.3.4` | aperfeiçoamento da ingestão | API autenticada para receber ZIPs, inspecionar itens, gerar manifesto provisório, corrigir metadados e confirmar registros do corpus com controles de segurança. | PR #10 |
 | `0.3.5` | aperfeiçoamento metodológico da ingestão | Diagnóstico preliminar de PDFs, separação entre sugestões textuais e metadados aceitos, registro de divergências, vínculos sugeridos de documentos de apoio, testes de regressão e painel restrito aos municípios com legislação em análise. | PR #11 |
 | `0.3.6` | correção e portabilidade | Execução integral dos testes no PostgreSQL canônico, correções de handles de arquivo e compatibilidade com Windows. | PR #12 |
-| `0.3.7` | correção de consistência documental | O leitor passa a selecionar explicitamente a versão documental e a carregar PDF e Markdown provenientes da mesma versão, impedindo combinações cruzadas de artefatos. | PR em revisão |
+| `0.3.7` | correção de consistência documental | O leitor seleciona explicitamente a versão documental e carrega PDF e Markdown provenientes da mesma versão. | PR #13 |
+| `0.4.0` | incremento de roadmap | Classificação auditável da natureza das versões documentais e registro de sucessão, equivalência e derivação, com validação humana e exposição no manifesto. | PR #16 |
 
-### Delimitação metodológica da versão 0.3.7
+### Delimitação metodológica da versão 0.4.0
 
-A seleção de uma versão no leitor controla conjuntamente o PDF original e o Markdown convertido. O comportamento padrão continua a abrir a versão documental mais recente, mas versões anteriores podem ser consultadas explicitamente sem que o sistema misture seus artefatos com processamentos posteriores.
+A situação técnica de ingestão permanece separada da natureza normativa. Arquivos binariamente distintos não são tratados como duplicatas apenas por apresentarem textos semelhantes, e uma relação de sucessão não escolhe automaticamente a versão canônica de um release.
 
-A correção não classifica relações jurídicas entre versões, não escolhe versão canônica para o corpus e não altera a detecção de duplicatas por SHA-256. Esses incrementos pertencem à etapa seguinte do roadmap.
+Classificações e relações podem ser registradas como pendentes. A confirmação exige responsável, data e justificativa. Relações de sucessão ligam versões do mesmo documento normativo em ordem crescente e não modificam arquivos originais, conversões ou decisões anteriores.
 
 ### Uso em branches experimentais
 
 Uma alternativa ainda não incorporada deve partir da versão vigente e receber uma letra, sem alterar o histórico oficial. Exemplos:
 
 ```text
-0.3.7a  alternativa A para classificação documental
-0.3.7b  alternativa B para o mesmo ensaio
-0.3.7c  terceira alternativa comparável
+0.4.0a  alternativa A para alinhamento de artigos
+0.4.0b  alternativa B para o mesmo ensaio
+0.4.0c  terceira alternativa comparável
 ```
 
-Com a recepção e a qualificação documental estabilizadas, a passagem para `0.4.0` fica reservada à modelagem de versões normativas sucessivas, comparação entre versões e adjudicação das diferenças.
+Os próximos aperfeiçoamentos da série `0.4.x` devem usar as relações de versões como base para segmentação persistente, alinhamento de unidades normativas, comparação assistida e adjudicação humana.
 
 ### Princípio de rastreabilidade
 
