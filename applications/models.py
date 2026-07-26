@@ -730,17 +730,55 @@ class ReleaseCorpus(RegistroTemporal):
     def __str__(self) -> str:
         return f"{self.aplicacao} — release {self.versao}"
 
-    @property
-    def pode_ser_liberado(self) -> bool:
-        return not OcorrenciaDocumental.objects.filter(
-            versao_documento__releasecorpusdocumento__release=self,
+    def motivos_bloqueio(self) -> list[str]:
+        """Retorna a lista de motivos que impedem a liberação do corpus.
+
+        Inclui ocorrências críticas abertas e versões documentais sem nenhum ato normativo
+        registrado. Uma lista vazia indica que o release pode ser liberado.
+        """
+        motivos: list[str] = []
+
+        # Ocorrências críticas não adjudicadas: usamos a relação through explicitamente
+        # para evitar ambiguidade. ReleaseCorpusDocumento usa related_name="vinculos_release"
+        # no campo versao_documento.
+        ocorrencias_bloqueantes = OcorrenciaDocumental.objects.filter(
+            versao_documento__vinculos_release__release=self,
             severidade=OcorrenciaDocumental.Severidade.CRITICA,
         ).exclude(
             estado__in=[
                 OcorrenciaDocumental.Estado.RESOLVIDA,
                 OcorrenciaDocumental.Estado.ACEITA,
             ]
-        ).exists()
+        )
+        contagem_ocorrencias = ocorrencias_bloqueantes.count()
+        if contagem_ocorrencias:
+            motivos.append(
+                f"{contagem_ocorrencias} ocorrência(s) crítica(s) aberta(s) não adjudicada(s)."
+            )
+
+        # Versões documentais sem nenhum ato normativo registrado.
+        # Materializamos os PKs do M2M primeiro para evitar conflitos de JOIN com a tabela
+        # intermediária ao combinar com o filtro reverso de AtoNormativo.
+        versoes_documentais_pks = list(
+            self.versoes_documentais.values_list("pk", flat=True)
+        )
+        versoes_sem_atos_pks = list(
+            VersaoDocumento.objects.filter(pk__in=versoes_documentais_pks)
+            .filter(atos_normativos__isnull=True)
+            .values_list("pk", flat=True)
+        )
+        if versoes_sem_atos_pks:
+            motivos.append(
+                f"{len(versoes_sem_atos_pks)} versão(ões) documental(is) sem nenhum ato "
+                f"normativo rastreado (IDs: {', '.join(str(pk) for pk in versoes_sem_atos_pks)})."
+            )
+
+        return motivos
+
+    @property
+    def pode_ser_liberado(self) -> bool:
+        """Retorna True somente se não houver nenhum motivo de bloqueio."""
+        return not self.motivos_bloqueio()
 
 
 class ReleaseCorpusDocumento(models.Model):

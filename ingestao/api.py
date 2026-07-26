@@ -16,7 +16,7 @@ from django.views.decorators.http import require_http_methods
 from applications.models import TipoNormativo
 
 from .models import ImportacaoLote, ItemImportacaoLote
-from .services import confirmar_lote, inspecionar_lote
+from .services import IngestaoErro, IngestaoErroGovernanca, confirmar_lote, inspecionar_lote
 
 
 def _autorizado(request: HttpRequest) -> bool:
@@ -179,8 +179,11 @@ def inspecionar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
     lote = get_object_or_404(ImportacaoLote, pk=lote_id)
     try:
         inspecionar_lote(lote)
-    except (OSError, ValueError) as erro:
-        return JsonResponse({"erro": str(erro), "lote": _lote_json(lote)}, status=422)
+    except IngestaoErroGovernanca as erro:
+        return JsonResponse({"erro": str(erro), "categoria": erro.categoria, "lote": _lote_json(lote)}, status=409)
+    except (OSError, ValueError, IngestaoErro) as erro:
+        categoria = getattr(erro, "categoria", "tecnico")
+        return JsonResponse({"erro": str(erro), "categoria": categoria, "lote": _lote_json(lote)}, status=422)
     return JsonResponse(_lote_json(lote, incluir_itens=True))
 
 
@@ -267,6 +270,9 @@ def confirmar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
     lote = get_object_or_404(ImportacaoLote, pk=lote_id)
     try:
         resumo = confirmar_lote(lote)
-    except ValueError as erro:
-        return JsonResponse({"erro": str(erro)}, status=409)
+    except IngestaoErroGovernanca as erro:
+        return JsonResponse({"erro": str(erro), "categoria": erro.categoria}, status=409)
+    except (ValueError, IngestaoErro) as erro:
+        categoria = getattr(erro, "categoria", "generico")
+        return JsonResponse({"erro": str(erro), "categoria": categoria}, status=409)
     return JsonResponse({"lote": _lote_json(lote), "resumo": resumo})

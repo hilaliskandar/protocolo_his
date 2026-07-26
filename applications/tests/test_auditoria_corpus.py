@@ -175,3 +175,104 @@ def test_release_nao_repete_versao_documental(versao_documento):
             release=release,
             versao_documento=versao_documento,
         )
+
+
+# ------------------------------------------------------------------
+# Testes de motivos_bloqueio e pode_ser_liberado
+# ------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_release_sem_ocorrencias_e_sem_atos_esta_bloqueado(versao_documento):
+    """Release com versão documental sem atos normativos deve ser bloqueado por traceabilidade."""
+    release = ReleaseCorpus.objects.create(
+        aplicacao=versao_documento.documento.aplicacao,
+        versao="0.2.0",
+    )
+    ReleaseCorpusDocumento.objects.create(release=release, versao_documento=versao_documento)
+
+    motivos = release.motivos_bloqueio()
+
+    assert not release.pode_ser_liberado
+    assert any("ato normativo" in motivo.lower() for motivo in motivos)
+
+
+@pytest.mark.django_db
+def test_release_com_atos_e_sem_ocorrencias_criticas_pode_ser_liberado(versao_documento, ato):
+    """Release com atos registrados e sem ocorrências críticas abertas deve ser liberado."""
+    release = ReleaseCorpus.objects.create(
+        aplicacao=versao_documento.documento.aplicacao,
+        versao="0.3.0",
+    )
+    ReleaseCorpusDocumento.objects.create(release=release, versao_documento=versao_documento)
+
+    motivos = release.motivos_bloqueio()
+
+    assert motivos == []
+    assert release.pode_ser_liberado
+
+
+@pytest.mark.django_db
+def test_release_com_ocorrencia_critica_aberta_e_com_atos_esta_bloqueado(versao_documento, ato):
+    """Release com ocorrência crítica aberta deve ser bloqueado mesmo que haja atos."""
+    release = ReleaseCorpus.objects.create(
+        aplicacao=versao_documento.documento.aplicacao,
+        versao="0.4.0",
+    )
+    ReleaseCorpusDocumento.objects.create(release=release, versao_documento=versao_documento)
+    OcorrenciaDocumental.objects.create(
+        versao_documento=versao_documento,
+        categoria="pagina_ausente",
+        severidade=OcorrenciaDocumental.Severidade.CRITICA,
+        descricao="Teste.",
+    )
+
+    motivos = release.motivos_bloqueio()
+
+    assert not release.pode_ser_liberado
+    assert any("crítica" in motivo.lower() for motivo in motivos)
+
+
+@pytest.mark.django_db
+def test_motivos_bloqueio_lista_ocorrencias_e_traceabilidade_em_conjunto(
+    versao_documento,
+):
+    """motivos_bloqueio() deve listar todos os problemas simultaneamente."""
+    release = ReleaseCorpus.objects.create(
+        aplicacao=versao_documento.documento.aplicacao,
+        versao="0.5.0",
+    )
+    ReleaseCorpusDocumento.objects.create(release=release, versao_documento=versao_documento)
+    # Sem atos e com ocorrência crítica aberta: dois motivos de bloqueio.
+    OcorrenciaDocumental.objects.create(
+        versao_documento=versao_documento,
+        categoria="pagina_ausente",
+        severidade=OcorrenciaDocumental.Severidade.CRITICA,
+        descricao="Teste.",
+    )
+
+    motivos = release.motivos_bloqueio()
+
+    assert len(motivos) == 2
+    assert not release.pode_ser_liberado
+
+
+@pytest.mark.django_db
+def test_ocorrencia_critica_resolvida_nao_bloqueia_release_com_atos(versao_documento, ato):
+    """Ocorrência crítica resolvida não deve bloquear o release."""
+    release = ReleaseCorpus.objects.create(
+        aplicacao=versao_documento.documento.aplicacao,
+        versao="0.6.0",
+    )
+    ReleaseCorpusDocumento.objects.create(release=release, versao_documento=versao_documento)
+    ocorrencia = OcorrenciaDocumental.objects.create(
+        versao_documento=versao_documento,
+        categoria="pagina_ausente",
+        severidade=OcorrenciaDocumental.Severidade.CRITICA,
+        descricao="Teste.",
+        estado=OcorrenciaDocumental.Estado.RESOLVIDA,
+    )
+
+    assert ocorrencia.estado == OcorrenciaDocumental.Estado.RESOLVIDA
+    assert release.motivos_bloqueio() == []
+    assert release.pode_ser_liberado
