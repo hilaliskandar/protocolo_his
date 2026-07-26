@@ -10,7 +10,7 @@ Defina no `.env`:
 API_INGESTAO_TOKEN=troque-por-um-token-longo
 ```
 
-Envie `Authorization: Bearer <token>`. Usuários autenticados com perfil de equipe (`is_staff`) também são aceitos.
+Todas as rotas exigem `Authorization: Bearer <token>`. A autenticação administrativa por sessão permanece restrita ao Admin e não é aceita pela API.
 
 ## Fluxo
 
@@ -19,11 +19,14 @@ Envie `Authorization: Bearer <token>`. Usuários autenticados com perfil de equi
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/importacoes/ \
   -H "Authorization: Bearer $API_INGESTAO_TOKEN" \
+  -H "Idempotency-Key: rm-jundiai-lote-4" \
   -F "arquivo_zip=@lote.zip" \
   -F "titulo=RM Jundiaí — lote 4" \
   -F "origem_recebimento=corpus municipal" \
   -F "uf_padrao=SP"
 ```
+
+A chave de idempotência é opcional, mas recomendada. Repetir a mesma chave reutiliza o lote já registrado e não grava uma segunda cópia do ZIP.
 
 ### 2. Inspecionar
 
@@ -52,6 +55,8 @@ curl -X PATCH http://127.0.0.1:8000/api/v1/itens-importacao/ITEM_ID/ \
   }'
 ```
 
+Arquivos sem assinatura PDF válida não podem ser marcados como `pronto`, mesmo por correção manual.
+
 ### 4. Confirmar
 
 ```bash
@@ -59,16 +64,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/importacoes/UUID/confirmar/ \
   -H "Authorization: Bearer $API_INGESTAO_TOKEN"
 ```
 
-Somente itens `pronto` são materializados. Itens ambíguos, duplicados, ignorados ou com falha permanecem no manifesto.
+Somente itens `pronto` são materializados. A confirmação revalida índice, caminho, tamanho, assinatura e SHA-256 do PDF. Itens já confirmados não geram novas versões em uma reexecução. Enquanto houver itens em revisão ou com falha, o lote permanece `inspecionado`.
 
 ## Controles
 
 - preservação imutável do ZIP original;
 - hash SHA-256 do ZIP e de cada PDF;
+- chave de idempotência armazenada somente como hash;
 - proteção contra `zip slip`;
 - limites de tamanho, quantidade de arquivos, expansão e razão de compactação;
-- validação da assinatura `%PDF-`;
-- detecção de duplicatas dentro do lote;
+- validação da assinatura `%PDF-` no manifesto e na confirmação;
+- preservação de arquivos com caminhos repetidos por índice interno do ZIP;
+- detecção de duplicatas por conteúdo;
 - `dry-run` estrutural antes da confirmação;
 - estados de revisão humana;
 - criação ou reutilização controlada de município, aplicação, documento e versão;
