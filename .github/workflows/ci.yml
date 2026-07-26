@@ -65,13 +65,20 @@ jobs:
       - name: Instalar projeto
         run: python -m pip install -e ".[dev]"
 
-      - name: Validar correções
-        run: |
-          python -m ruff check .
-          python manage.py check
-          python manage.py makemigrations --check --dry-run
-          python manage.py test applications.test_portabilidade_arquivos applications.test_interface_qualificacao applications.test_pdf_iframe --verbosity 2
-          python manage.py test --verbosity 2
+      - name: Executar Ruff
+        run: python -m ruff check .
+
+      - name: Verificar Django
+        run: python manage.py check
+
+      - name: Verificar migrações
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Testar portabilidade e interface
+        run: python manage.py test applications.test_portabilidade_arquivos applications.test_interface_qualificacao applications.test_pdf_iframe --verbosity 2
+
+      - name: Testar suíte PostgreSQL completa
+        run: python manage.py test --verbosity 2
 
       - name: Registrar correções
         run: |
