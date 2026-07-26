@@ -124,6 +124,12 @@ class ItemImportacaoLote(models.Model):
         CONFIRMADO = "confirmado", "Confirmado"
         FALHOU = "falhou", "Falhou"
 
+    class RotaSugerida(models.TextChoices):
+        TEXTO_NATIVO = "texto_nativo", "Texto nativo"
+        OCR = "ocr", "OCR"
+        MISTO = "misto", "Misto"
+        MANUAL = "manual", "Revisão manual"
+
     lote = models.ForeignKey(ImportacaoLote, on_delete=models.CASCADE, related_name="itens")
     indice_arquivo = models.PositiveIntegerField()
     caminho_relativo = models.TextField()
@@ -133,6 +139,7 @@ class ItemImportacaoLote(models.Model):
     natureza = models.CharField(max_length=32, choices=Natureza.choices, default=Natureza.OUTRO)
     tipo_normativo_codigo = models.CharField(max_length=60, blank=True)
     numero_candidato = models.CharField(max_length=40, blank=True)
+    numero_normalizado = models.CharField(max_length=40, blank=True, db_index=True)
     ano_candidato = models.PositiveSmallIntegerField(blank=True, null=True)
     titulo_candidato = models.CharField(max_length=255, blank=True)
     data_publicacao_candidata = models.DateField(blank=True, null=True)
@@ -140,6 +147,17 @@ class ItemImportacaoLote(models.Model):
     tamanho_bytes = models.PositiveBigIntegerField(default=0)
     mime_type = models.CharField(max_length=120, default="application/pdf")
     assinatura_pdf_valida = models.BooleanField(default=False, editable=False)
+    paginas = models.PositiveIntegerField(blank=True, null=True, editable=False)
+    paginas_amostradas = models.PositiveSmallIntegerField(default=0, editable=False)
+    caracteres_amostra = models.PositiveIntegerField(default=0, editable=False)
+    rota_sugerida = models.CharField(
+        max_length=20,
+        choices=RotaSugerida.choices,
+        blank=True,
+        editable=False,
+    )
+    texto_amostra = models.TextField(blank=True, editable=False)
+    fontes_metadados = models.JSONField(default=dict, blank=True)
     confianca = models.FloatField(default=0.0)
     avisos = models.JSONField(default=list, blank=True)
     estado = models.CharField(max_length=16, choices=Estado.choices, default=Estado.REVISAO)
@@ -147,6 +165,13 @@ class ItemImportacaoLote(models.Model):
         "self",
         on_delete=models.PROTECT,
         related_name="duplicatas",
+        blank=True,
+        null=True,
+    )
+    documento_principal_candidato = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="documentos_apoio",
         blank=True,
         null=True,
     )
@@ -178,15 +203,24 @@ class ItemImportacaoLote(models.Model):
         verbose_name = "item de importação"
         verbose_name_plural = "itens de importação"
 
+    @staticmethod
+    def normalizar_numero(valor: str) -> str:
+        return "".join(caractere for caractere in valor if caractere.isdigit())
+
     def clean(self) -> None:
         super().clean()
         self.uf = self.uf.strip().upper()
+        self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
         if self.uf and len(self.uf) != 2:
             raise ValidationError({"uf": "Informe uma UF com duas letras."})
         if self.estado == self.Estado.PRONTO and not self.assinatura_pdf_valida:
             raise ValidationError(
                 {"estado": "Um arquivo sem assinatura PDF válida não pode ser confirmado."}
             )
+
+    def save(self, *args, **kwargs) -> None:
+        self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.caminho_relativo
