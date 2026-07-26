@@ -30,6 +30,53 @@ class TestesPaginaInicial(TestCase):
         self.assertEqual(resposta.status_code, 200)
         self.assertContains(resposta, "Plataforma Protocolo HIS")
 
+    def test_painel_conta_apenas_municipios_com_legislacao(self):
+        municipio_sem_aplicacao = Municipio.objects.create(nome="Borá", uf="SP")
+        municipio_com_aplicacao_vazia = Municipio.objects.create(nome="Cabreúva", uf="SP")
+        municipio_com_legislacao_1 = Municipio.objects.create(nome="Jundiaí", uf="SP")
+        municipio_com_legislacao_2 = Municipio.objects.create(nome="Jarinu", uf="SP")
+
+        AplicacaoMunicipal.objects.create(
+            municipio=municipio_com_aplicacao_vazia,
+            titulo="Aplicação ainda sem corpus",
+        )
+        aplicacao_1 = AplicacaoMunicipal.objects.create(
+            municipio=municipio_com_legislacao_1,
+            titulo="Aplicação Jundiaí",
+        )
+        aplicacao_2 = AplicacaoMunicipal.objects.create(
+            municipio=municipio_com_legislacao_2,
+            titulo="Aplicação Jarinu",
+        )
+        tipo = TipoNormativo.objects.get(codigo="lei_ordinaria")
+        DocumentoNormativo.objects.create(
+            aplicacao=aplicacao_1,
+            tipo=tipo,
+            numero="9321",
+            ano=2019,
+            titulo="Plano Diretor",
+        )
+        DocumentoNormativo.objects.create(
+            aplicacao=aplicacao_1,
+            tipo=tipo,
+            numero="9806",
+            ano=2022,
+            titulo="Lei municipal",
+        )
+        DocumentoNormativo.objects.create(
+            aplicacao=aplicacao_2,
+            tipo=tipo,
+            numero="2076",
+            ano=2021,
+            titulo="Lei municipal",
+        )
+
+        resposta = self.client.get(reverse("inicio"))
+
+        self.assertEqual(resposta.context["total_municipios"], 2)
+        self.assertContains(resposta, "Municípios em análise")
+        self.assertNotEqual(municipio_sem_aplicacao.pk, municipio_com_legislacao_1.pk)
+
 
 class BaseTesteCorpus(TestCase):
     def setUp(self):
