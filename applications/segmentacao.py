@@ -115,26 +115,23 @@ def _marcadores_pagina(texto: str) -> tuple[list[int], list[int]]:
     posicoes = [0]
     paginas = [1]
     for correspondencia in PADRAO_PAGINA.finditer(texto):
-        numero = next(
-            int(grupo) for grupo in correspondencia.groups() if grupo is not None
-        )
+        numero = next(int(grupo) for grupo in correspondencia.groups() if grupo is not None)
         posicoes.append(correspondencia.start())
         paginas.append(numero)
     return posicoes, paginas
 
 
 def _pagina_em(posicao: int, posicoes: list[int], paginas: list[int]) -> int:
-    indice = bisect_right(posicoes, posicao) - 1
-    return paginas[max(indice, 0)]
+    return paginas[max(bisect_right(posicoes, posicao) - 1, 0)]
 
 
 def _tipo_anexo(titulo: str) -> str:
-    titulo_normalizado = titulo.upper()
-    if titulo_normalizado.startswith("TABELA") or titulo_normalizado.startswith("QUADRO"):
+    titulo = titulo.upper()
+    if titulo.startswith(("TABELA", "QUADRO")):
         return AnexoNormativo.Tipo.TABELA
-    if titulo_normalizado.startswith("MAPA"):
+    if titulo.startswith("MAPA"):
         return AnexoNormativo.Tipo.MAPA
-    if titulo_normalizado.startswith("MEMORIAL DESCRITIVO"):
+    if titulo.startswith("MEMORIAL DESCRITIVO"):
         return AnexoNormativo.Tipo.COORDENADAS
     return AnexoNormativo.Tipo.TEXTO
 
@@ -142,9 +139,10 @@ def _tipo_anexo(titulo: str) -> str:
 def _uniao_intervalos(intervalos: list[tuple[int, int]]) -> int:
     if not intervalos:
         return 0
+    ordenados = sorted(intervalos)
+    inicio_atual, fim_atual = ordenados[0]
     total = 0
-    inicio_atual, fim_atual = sorted(intervalos)[0]
-    for inicio, fim in sorted(intervalos)[1:]:
+    for inicio, fim in ordenados[1:]:
         if inicio <= fim_atual:
             fim_atual = max(fim_atual, fim)
         else:
@@ -157,9 +155,10 @@ def segmentar_markdown(markdown: str) -> ResultadoSegmentacao:
     """Segmenta artigos e anexos sem corrigir silenciosamente a fonte."""
     sha_markdown = sha256(markdown.encode("utf-8")).hexdigest()
     posicoes_pagina, paginas = _marcadores_pagina(markdown)
-    marcadores: list[tuple[int, str, re.Match[str]]] = []
-    marcadores.extend((item.start(), "artigo", item) for item in PADRAO_ARTIGO.finditer(markdown))
-    marcadores.extend((item.start(), "anexo", item) for item in PADRAO_ANEXO.finditer(markdown))
+    marcadores: list[tuple[int, str, re.Match[str]]] = [
+        *((item.start(), "artigo", item) for item in PADRAO_ARTIGO.finditer(markdown)),
+        *((item.start(), "anexo", item) for item in PADRAO_ANEXO.finditer(markdown)),
+    ]
     marcadores.sort(key=lambda item: item[0])
 
     artigos: list[ArtigoExtraido] = []
@@ -180,13 +179,12 @@ def segmentar_markdown(markdown: str) -> ResultadoSegmentacao:
 
         if tipo == "artigo":
             numero = correspondencia.group("numero")
-            sufixo = (correspondencia.group("sufixo") or "").upper()
             artigos.append(
                 ArtigoExtraido(
                     rotulo=correspondencia.group("rotulo").strip(),
                     numero_textual=numero,
                     numero_normalizado=int(numero),
-                    sufixo=sufixo,
+                    sufixo=(correspondencia.group("sufixo") or "").upper(),
                     texto=bloco,
                     inicio=inicio,
                     fim=fim,
@@ -233,12 +231,13 @@ def segmentar_markdown(markdown: str) -> ResultadoSegmentacao:
             vistos[chave] = artigo
 
     for (numero, sufixo), itens in duplicados.items():
+        complemento = f"-{sufixo}" if sufixo else ""
         ocorrencias.append(
             OcorrenciaExtraida(
                 categoria="segmentacao_artigo_duplicado",
                 severidade=OcorrenciaDocumental.Severidade.ALTA,
                 pagina=itens[0].pagina_inicial,
-                descricao=f"O artigo {numero}{('-' + sufixo) if sufixo else ''} aparece mais de uma vez.",
+                descricao=f"O artigo {numero}{complemento} aparece mais de uma vez.",
                 evidencias=[
                     {
                         "rotulo": item.rotulo,
@@ -253,23 +252,22 @@ def segmentar_markdown(markdown: str) -> ResultadoSegmentacao:
             )
         )
 
-    numeros_principais: list[int] = []
+    numeros: list[int] = []
     for artigo in artigos:
-        if artigo.sufixo or artigo.numero_normalizado in numeros_principais:
-            continue
-        numeros_principais.append(artigo.numero_normalizado)
-    for anterior, atual in zip(numeros_principais, numeros_principais[1:], strict=False):
+        if artigo.numero_normalizado not in numeros:
+            numeros.append(artigo.numero_normalizado)
+    for anterior, atual in zip(numeros, numeros[1:], strict=False):
         if atual > anterior + 1:
-            alvo = next(item for item in artigos if item.numero_normalizado == atual and not item.sufixo)
-            alvo.status_sequencia = ArtigoNormativo.StatusSequencia.LACUNA
-            ausentes = list(range(anterior + 1, atual))
+            alvo = next(item for item in artigos if item.numero_normalizado == atual)
+            if alvo.status_sequencia == ArtigoNormativo.StatusSequencia.REGULAR:
+                alvo.status_sequencia = ArtigoNormativo.StatusSequencia.LACUNA
             ocorrencias.append(
                 OcorrenciaExtraida(
                     categoria="segmentacao_lacuna_sequencia",
                     severidade=OcorrenciaDocumental.Severidade.ALTA,
                     pagina=alvo.pagina_inicial,
                     descricao=f"Lacuna entre os artigos {anterior} e {atual}.",
-                    evidencias=[{"artigos_ausentes": ausentes}],
+                    evidencias=[{"artigos_ausentes": list(range(anterior + 1, atual))}],
                 )
             )
         elif atual < anterior:
@@ -281,17 +279,15 @@ def segmentar_markdown(markdown: str) -> ResultadoSegmentacao:
                 )
             )
 
-    inicio_primeira_unidade = marcadores[0][0] if marcadores else len(markdown)
-    preambulo = markdown[:inicio_primeira_unidade].strip()
-    caracteres_unidades = _uniao_intervalos(intervalos)
+    inicio_unidades = marcadores[0][0] if marcadores else len(markdown)
     caracteres_total = len(markdown)
-    caracteres_atribuidos = caracteres_unidades + len(markdown[:inicio_primeira_unidade])
+    caracteres_unidades = _uniao_intervalos(intervalos)
+    caracteres_atribuidos = caracteres_unidades + inicio_unidades
     caracteres_nao_atribuidos = max(caracteres_total - caracteres_atribuidos, 0)
-    cobertura = (caracteres_atribuidos / caracteres_total * 100) if caracteres_total else 100.0
-    percentual_nao_atribuido = (
+    cobertura = caracteres_atribuidos / caracteres_total * 100 if caracteres_total else 100.0
+    nao_atribuido = (
         caracteres_nao_atribuidos / caracteres_total * 100 if caracteres_total else 0.0
     )
-
     metricas = {
         "artigos_detectados": len(artigos),
         "artigos_canonicos": len(vistos),
@@ -299,27 +295,24 @@ def segmentar_markdown(markdown: str) -> ResultadoSegmentacao:
         "ocorrencias_detectadas": len(ocorrencias),
         "duplicacoes_numeracao": len(duplicados),
         "lacunas_sequencia": sum(
-            1 for item in ocorrencias if item.categoria == "segmentacao_lacuna_sequencia"
+            item.categoria == "segmentacao_lacuna_sequencia" for item in ocorrencias
         ),
         "caracteres_total": caracteres_total,
-        "caracteres_preambulo": len(preambulo),
+        "caracteres_preambulo": len(markdown[:inicio_unidades].strip()),
         "caracteres_nao_atribuidos": caracteres_nao_atribuidos,
         "cobertura_percentual": round(cobertura, 4),
-        "nao_atribuido_percentual": round(percentual_nao_atribuido, 4),
+        "nao_atribuido_percentual": round(nao_atribuido, 4),
         "gate_cobertura_98": cobertura >= 98.0,
-        "gate_nao_atribuido_2": percentual_nao_atribuido <= 2.0,
+        "gate_nao_atribuido_2": nao_atribuido <= 2.0,
         "gate_sem_duplicacao": not duplicados,
     }
-    return ResultadoSegmentacao(
-        artigos=artigos,
-        anexos=anexos,
-        ocorrencias=ocorrencias,
-        metricas=metricas,
-        sha256_markdown=sha_markdown,
-    )
+    return ResultadoSegmentacao(artigos, anexos, ocorrencias, metricas, sha_markdown)
 
 
-def _artefato_markdown(versao: VersaoDocumento, artefato_id: int | None = None) -> ArtefatoProcessado:
+def _artefato_markdown(
+    versao: VersaoDocumento,
+    artefato_id: int | None = None,
+) -> ArtefatoProcessado:
     consulta = ArtefatoProcessado.objects.filter(
         processamento__versao_documento=versao,
         processamento__status=ProcessamentoDocumento.Status.CONCLUIDO,
@@ -343,8 +336,8 @@ def _ler_markdown(artefato: ArtefatoProcessado) -> str:
 
 def _natureza_ato(versao: VersaoDocumento) -> str:
     try:
-        classificacao = versao.classificacao_normativa
-    except (AttributeError, ObjectDoesNotExist):  # type: ignore[name-defined]
+        natureza = versao.classificacao_normativa.natureza
+    except AttributeError:
         return AtoNormativo.NaturezaTexto.NAO_IDENTIFICADA
     mapa = {
         "original_publicado": AtoNormativo.NaturezaTexto.ORIGINAL,
@@ -352,20 +345,7 @@ def _natureza_ato(versao: VersaoDocumento) -> str:
         "consolidacao_oficial": AtoNormativo.NaturezaTexto.CONSOLIDADO_OFICIAL,
         "compilacao_nao_oficial": AtoNormativo.NaturezaTexto.COMPILACAO,
     }
-    return mapa.get(classificacao.natureza, AtoNormativo.NaturezaTexto.NAO_IDENTIFICADA)
-
-
-def _identificador_ato(versao: VersaoDocumento) -> str:
-    return f"versao-{versao.pk}-ato-principal"
-
-
-def _identificador_artigo(versao: VersaoDocumento, artigo: ArtigoExtraido) -> str:
-    sufixo = artigo.sufixo.lower() or "principal"
-    return f"versao-{versao.pk}-art-{artigo.numero_normalizado}-{sufixo}"
-
-
-def _identificador_anexo(versao: VersaoDocumento, indice: int) -> str:
-    return f"versao-{versao.pk}-anexo-{indice:03d}"
+    return mapa.get(natureza, AtoNormativo.NaturezaTexto.NAO_IDENTIFICADA)
 
 
 def _possui_revisao_humana(versao: VersaoDocumento) -> bool:
@@ -411,10 +391,9 @@ def executar_segmentacao(
     substituir_revisados: bool = False,
     artefato_id: int | None = None,
 ) -> tuple[ResultadoSegmentacao, ProcessamentoDocumento | None, bool]:
-    """Executa análise e, quando confirmada, persiste unidades de modo idempotente."""
+    """Executa análise e persiste unidades apenas quando há confirmação explícita."""
     artefato = _artefato_markdown(versao, artefato_id)
-    markdown = _ler_markdown(artefato)
-    resultado = segmentar_markdown(markdown)
+    resultado = segmentar_markdown(_ler_markdown(artefato))
     parametros = {
         "artefato_markdown_id": artefato.pk,
         "sha256_markdown": artefato.sha256 or resultado.sha256_markdown,
@@ -435,6 +414,10 @@ def executar_segmentacao(
         raise ErroSegmentacao(
             "Há unidades com revisão humana. Use --substituir-revisados somente após decisão explícita."
         )
+    if versao.atos_normativos.exclude(metadados__segmentacao_automatica=True).exists():
+        raise ErroSegmentacao(
+            "A versão possui ato normativo não gerado pelo segmentador; a substituição automática foi bloqueada."
+        )
 
     processamento = ProcessamentoDocumento.objects.create(
         versao_documento=versao,
@@ -452,21 +435,17 @@ def executar_segmentacao(
         with transaction.atomic():
             versao.ocorrencias_documentais.filter(categoria__startswith=CATEGORIA_PREFIXO).delete()
             versao.atos_normativos.filter(metadados__segmentacao_automatica=True).delete()
-
-            paginas = [item.pagina_final for item in resultado.artigos] + [
-                item.pagina_final for item in resultado.anexos
-            ]
-            pagina_final = max(paginas, default=1)
+            paginas = [item.pagina_final for item in resultado.artigos + resultado.anexos]
             ato = AtoNormativo.objects.create(
                 versao_documento=versao,
-                identificador=_identificador_ato(versao),
+                identificador=f"versao-{versao.pk}-ato-principal",
                 especie=versao.documento.tipo.nome,
                 numero=versao.documento.numero,
                 ano=versao.documento.ano,
                 data_norma=versao.documento.data_publicacao,
                 natureza_texto=_natureza_ato(versao),
                 pagina_inicial=1,
-                pagina_final=pagina_final,
+                pagina_final=max(paginas, default=1),
                 primeiro_artigo=resultado.artigos[0].numero_textual if resultado.artigos else "",
                 ultimo_artigo=resultado.artigos[-1].numero_textual if resultado.artigos else "",
                 status_auditoria=AtoNormativo.StatusAuditoria.EM_REVISAO,
@@ -479,14 +458,17 @@ def executar_segmentacao(
                 },
             )
 
-            artigos_persistidos: dict[tuple[int, str], ArtigoNormativo] = {}
+            persistidos: dict[tuple[int, str], ArtigoNormativo] = {}
             for artigo in resultado.artigos:
                 chave = (artigo.numero_normalizado, artigo.sufixo)
-                if chave in artigos_persistidos:
+                if chave in persistidos:
                     continue
-                registro = ArtigoNormativo.objects.create(
+                sufixo_id = artigo.sufixo.lower() or "principal"
+                persistidos[chave] = ArtigoNormativo.objects.create(
                     ato=ato,
-                    identificador=_identificador_artigo(versao, artigo),
+                    identificador=(
+                        f"versao-{versao.pk}-art-{artigo.numero_normalizado}-{sufixo_id}"
+                    ),
                     rotulo=artigo.rotulo,
                     numero_textual=artigo.numero_textual,
                     numero_normalizado=artigo.numero_normalizado,
@@ -506,12 +488,11 @@ def executar_segmentacao(
                     status_sequencia=artigo.status_sequencia,
                     status_auditoria=ArtigoNormativo.StatusAuditoria.AUTOMATICA,
                 )
-                artigos_persistidos[chave] = registro
 
             for indice, anexo in enumerate(resultado.anexos, start=1):
                 AnexoNormativo.objects.create(
                     ato=ato,
-                    identificador=_identificador_anexo(versao, indice),
+                    identificador=f"versao-{versao.pk}-anexo-{indice:03d}",
                     titulo=anexo.titulo[:255],
                     tipo=anexo.tipo,
                     pagina_inicial=anexo.pagina_inicial,
@@ -529,17 +510,17 @@ def executar_segmentacao(
                 )
 
             for ocorrencia in resultado.ocorrencias:
-                artigo = None
-                if ocorrencia.categoria == "segmentacao_artigo_duplicado" and ocorrencia.evidencias:
+                artigo_relacionado = None
+                if ocorrencia.categoria == "segmentacao_artigo_duplicado":
                     rotulo = ocorrencia.evidencias[0].get("rotulo", "")
-                    artigo = next(
-                        (item for item in artigos_persistidos.values() if item.rotulo == rotulo),
+                    artigo_relacionado = next(
+                        (item for item in persistidos.values() if item.rotulo == rotulo),
                         None,
                     )
                 OcorrenciaDocumental.objects.create(
                     versao_documento=versao,
                     ato=ato,
-                    artigo=artigo,
+                    artigo=artigo_relacionado,
                     categoria=ocorrencia.categoria,
                     severidade=ocorrencia.severidade,
                     pagina=ocorrencia.pagina,
