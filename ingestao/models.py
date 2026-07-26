@@ -144,13 +144,13 @@ class ItemImportacaoLote(models.Model):
     titulo_candidato = models.CharField(max_length=255, blank=True)
     data_publicacao_candidata = models.DateField(blank=True, null=True)
 
-    # Indícios extraídos automaticamente permanecem separados dos metadados
-    # candidatos usados na confirmação do corpus.
-    numero_sugerido_texto = models.CharField(max_length=40, blank=True)
-    numero_sugerido_normalizado = models.CharField(max_length=40, blank=True, db_index=True)
-    ano_sugerido_texto = models.PositiveSmallIntegerField(blank=True, null=True)
-    fontes_sugestoes = models.JSONField(default=dict, blank=True)
-    divergencias_metadados = models.JSONField(default=list, blank=True)
+    numero_sugerido_texto = models.CharField(max_length=40, blank=True, editable=False)
+    numero_sugerido_normalizado = models.CharField(
+        max_length=40, blank=True, db_index=True, editable=False
+    )
+    ano_sugerido_texto = models.PositiveSmallIntegerField(blank=True, null=True, editable=False)
+    fontes_sugestoes = models.JSONField(default=dict, blank=True, editable=False)
+    divergencias_metadados = models.JSONField(default=list, blank=True, editable=False)
 
     sha256 = models.CharField(max_length=64, db_index=True)
     tamanho_bytes = models.PositiveBigIntegerField(default=0)
@@ -166,7 +166,7 @@ class ItemImportacaoLote(models.Model):
         editable=False,
     )
     texto_amostra = models.TextField(blank=True, editable=False)
-    fontes_metadados = models.JSONField(default=dict, blank=True)
+    fontes_metadados = models.JSONField(default=dict, blank=True, editable=False)
     confianca = models.FloatField(default=0.0)
     avisos = models.JSONField(default=list, blank=True)
     estado = models.CharField(max_length=16, choices=Estado.choices, default=Estado.REVISAO)
@@ -192,6 +192,7 @@ class ItemImportacaoLote(models.Model):
         related_name="documentos_apoio_sugeridos",
         blank=True,
         null=True,
+        editable=False,
         verbose_name="documento principal sugerido",
         help_text="Hipótese automática de vínculo; não autoriza confirmação.",
     )
@@ -227,15 +228,44 @@ class ItemImportacaoLote(models.Model):
     def normalizar_numero(valor: str) -> str:
         return "".join(caractere for caractere in valor if caractere.isdigit())
 
-    def _validar_vinculo_principal(self, campo: str) -> None:
+    def _erro_vinculo_principal(self, campo: str) -> str | None:
         relacionado_id = getattr(self, f"{campo}_id", None)
         if not relacionado_id:
-            return
+            return None
         if self.pk and relacionado_id == self.pk:
-            raise ValidationError({campo: "O item não pode apontar para si próprio."})
+            return "O item não pode apontar para si próprio."
         relacionado = getattr(self, campo)
         if self.lote_id and relacionado.lote_id != self.lote_id:
-            raise ValidationError({campo: "O documento principal deve pertencer ao mesmo lote."})
+            return "O documento principal deve pertencer ao mesmo lote."
+        if relacionado.natureza != self.Natureza.NORMATIVO_MUNICIPAL:
+            return "O documento principal deve ser um ato normativo municipal."
+        if relacionado.estado in {
+            self.Estado.DUPLICADO,
+            self.Estado.IGNORADO,
+            self.Estado.FALHOU,
+        }:
+            return "O documento principal não pode estar duplicado, ignorado ou com falha."
+        if not relacionado.assinatura_pdf_valida:
+            return "O documento principal deve possuir assinatura PDF válida."
+        obrigatorios = [
+            relacionado.municipio_candidato,
+            relacionado.uf,
+            relacionado.tipo_normativo_codigo,
+            relacionado.numero_normalizado or relacionado.numero_candidato,
+            relacionado.ano_candidato,
+        ]
+        if not all(obrigatorios):
+            return "O documento principal deve possuir metadados normativos mínimos."
+        if (
+            self.municipio_candidato
+            and relacionado.municipio_candidato != self.municipio_candidato
+        ):
+            return "O documento principal deve pertencer ao mesmo município do item de apoio."
+        return None
+
+    def _validar_vinculo_principal(self, campo: str) -> None:
+        if erro := self._erro_vinculo_principal(campo):
+            raise ValidationError({campo: erro})
 
     def clean(self) -> None:
         super().clean()
@@ -254,6 +284,10 @@ class ItemImportacaoLote(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
         self.numero_sugerido_normalizado = self.normalizar_numero(self.numero_sugerido_texto)
+        if erro := self._erro_vinculo_principal("documento_principal_candidato"):
+            raise ValidationError({"documento_principal_candidato": erro})
+        if self._erro_vinculo_principal("documento_principal_sugerido"):
+            self.documento_principal_sugerido = None
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
