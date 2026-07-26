@@ -143,6 +143,15 @@ class ItemImportacaoLote(models.Model):
     ano_candidato = models.PositiveSmallIntegerField(blank=True, null=True)
     titulo_candidato = models.CharField(max_length=255, blank=True)
     data_publicacao_candidata = models.DateField(blank=True, null=True)
+
+    # Indícios extraídos automaticamente permanecem separados dos metadados
+    # candidatos usados na confirmação do corpus.
+    numero_sugerido_texto = models.CharField(max_length=40, blank=True)
+    numero_sugerido_normalizado = models.CharField(max_length=40, blank=True, db_index=True)
+    ano_sugerido_texto = models.PositiveSmallIntegerField(blank=True, null=True)
+    fontes_sugestoes = models.JSONField(default=dict, blank=True)
+    divergencias_metadados = models.JSONField(default=list, blank=True)
+
     sha256 = models.CharField(max_length=64, db_index=True)
     tamanho_bytes = models.PositiveBigIntegerField(default=0)
     mime_type = models.CharField(max_length=120, default="application/pdf")
@@ -174,6 +183,17 @@ class ItemImportacaoLote(models.Model):
         related_name="documentos_apoio",
         blank=True,
         null=True,
+        verbose_name="documento principal confirmado",
+        help_text="Vínculo aceito para o documento de apoio após revisão.",
+    )
+    documento_principal_sugerido = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="documentos_apoio_sugeridos",
+        blank=True,
+        null=True,
+        verbose_name="documento principal sugerido",
+        help_text="Hipótese automática de vínculo; não autoriza confirmação.",
     )
     documento_criado = models.ForeignKey(
         "applications.DocumentoNormativo",
@@ -207,19 +227,33 @@ class ItemImportacaoLote(models.Model):
     def normalizar_numero(valor: str) -> str:
         return "".join(caractere for caractere in valor if caractere.isdigit())
 
+    def _validar_vinculo_principal(self, campo: str) -> None:
+        relacionado_id = getattr(self, f"{campo}_id", None)
+        if not relacionado_id:
+            return
+        if self.pk and relacionado_id == self.pk:
+            raise ValidationError({campo: "O item não pode apontar para si próprio."})
+        relacionado = getattr(self, campo)
+        if self.lote_id and relacionado.lote_id != self.lote_id:
+            raise ValidationError({campo: "O documento principal deve pertencer ao mesmo lote."})
+
     def clean(self) -> None:
         super().clean()
         self.uf = self.uf.strip().upper()
         self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
+        self.numero_sugerido_normalizado = self.normalizar_numero(self.numero_sugerido_texto)
         if self.uf and len(self.uf) != 2:
             raise ValidationError({"uf": "Informe uma UF com duas letras."})
         if self.estado == self.Estado.PRONTO and not self.assinatura_pdf_valida:
             raise ValidationError(
                 {"estado": "Um arquivo sem assinatura PDF válida não pode ser confirmado."}
             )
+        self._validar_vinculo_principal("documento_principal_candidato")
+        self._validar_vinculo_principal("documento_principal_sugerido")
 
     def save(self, *args, **kwargs) -> None:
         self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
+        self.numero_sugerido_normalizado = self.normalizar_numero(self.numero_sugerido_texto)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
