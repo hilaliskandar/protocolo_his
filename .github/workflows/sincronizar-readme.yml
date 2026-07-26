@@ -3,7 +3,7 @@ name: Sincronizar apêndices do README
 on:
   push:
     branches:
-      - docs/versionamento-readme
+      - "docs/**"
     paths:
       - docs/APENDICE_VERSIONAMENTO.md
       - docs/decisoes-tecnologicas.md
@@ -20,7 +20,7 @@ jobs:
       - name: Obter código
         uses: actions/checkout@v4
         with:
-          ref: docs/versionamento-readme
+          ref: ${{ github.ref_name }}
 
       - name: Configurar Python
         uses: actions/setup-python@v5
