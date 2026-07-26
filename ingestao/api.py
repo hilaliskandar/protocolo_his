@@ -50,6 +50,7 @@ def _item_json(item: ItemImportacaoLote) -> dict:
         "natureza": item.natureza,
         "tipo_normativo_codigo": item.tipo_normativo_codigo,
         "numero_candidato": item.numero_candidato,
+        "numero_normalizado": item.numero_normalizado,
         "ano_candidato": item.ano_candidato,
         "titulo_candidato": item.titulo_candidato,
         "data_publicacao_candidata": item.data_publicacao_candidata,
@@ -57,10 +58,17 @@ def _item_json(item: ItemImportacaoLote) -> dict:
         "tamanho_bytes": item.tamanho_bytes,
         "mime_type": item.mime_type,
         "assinatura_pdf_valida": item.assinatura_pdf_valida,
+        "paginas": item.paginas,
+        "paginas_amostradas": item.paginas_amostradas,
+        "caracteres_amostra": item.caracteres_amostra,
+        "rota_sugerida": item.rota_sugerida,
+        "texto_amostra": item.texto_amostra,
+        "fontes_metadados": item.fontes_metadados,
         "confianca": item.confianca,
         "avisos": item.avisos,
         "estado": item.estado,
         "duplicado_de": item.duplicado_de_id,
+        "documento_principal_candidato": item.documento_principal_candidato_id,
         "documento_criado": item.documento_criado_id,
         "versao_criada": item.versao_criada_id,
     }
@@ -199,6 +207,7 @@ def atualizar_item(request: HttpRequest, item_id: int) -> JsonResponse:
         "ano_candidato",
         "titulo_candidato",
         "data_publicacao_candidata",
+        "documento_principal_candidato",
         "estado",
     }
     desconhecidos = set(dados) - campos
@@ -207,6 +216,12 @@ def atualizar_item(request: HttpRequest, item_id: int) -> JsonResponse:
     tipo_codigo = dados.get("tipo_normativo_codigo")
     if tipo_codigo and not TipoNormativo.objects.filter(codigo=tipo_codigo, ativo=True).exists():
         return JsonResponse({"erro": "tipo_normativo_codigo inexistente ou inativo"}, status=400)
+    principal_id = dados.pop("documento_principal_candidato", None)
+    if principal_id is not None:
+        principal = get_object_or_404(ItemImportacaoLote, pk=principal_id)
+        if principal.lote_id != item.lote_id or principal.pk == item.pk:
+            return JsonResponse({"erro": "documento principal deve pertencer ao mesmo lote"}, status=400)
+        item.documento_principal_candidato = principal
     for campo, valor in dados.items():
         setattr(item, campo, valor)
     if item.estado == ItemImportacaoLote.Estado.PRONTO:
