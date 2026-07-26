@@ -138,4 +138,16 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
 
       - name: Executar testes com PostgreSQL
-        run: python manage.py test --verbosity 2
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          python manage.py test --verbosity 2 2>&1 | tee artifacts/postgresql-tests.log
+
+      - name: Publicar diagnóstico PostgreSQL
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-results-${{ github.run_id }}
+          path: artifacts/postgresql-tests.log
+          if-no-files-found: warn
+          retention-days: 14
