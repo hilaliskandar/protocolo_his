@@ -74,6 +74,8 @@ extend-exclude = ["*/migrations/*.py"]
 [tool.ruff.lint.per-file-ignores]
 "applications/models.py" = ["RUF012"]
 "applications/revisao_ia.py" = ["C405"]
+"ingestao/models.py" = ["RUF012"]
+"ingestao/services.py" = ["I001", "FURB167"]
 
 [tool.mypy]
 python_version = "3.12"
