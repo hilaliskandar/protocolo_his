@@ -247,15 +247,16 @@ class ItemImportacaoLote(models.Model):
             return "O documento principal não pode estar duplicado, ignorado ou com falha."
         if not relacionado.assinatura_pdf_valida:
             return "O documento principal deve possuir assinatura PDF válida."
-        obrigatorios = [
-            relacionado.municipio_candidato,
-            relacionado.uf,
-            relacionado.tipo_normativo_codigo,
-            relacionado.numero_normalizado or relacionado.numero_candidato,
-            relacionado.ano_candidato,
-        ]
-        if not all(obrigatorios):
-            return "O documento principal deve possuir metadados normativos mínimos."
+        if campo == "documento_principal_candidato":
+            obrigatorios = [
+                relacionado.municipio_candidato,
+                relacionado.uf,
+                relacionado.tipo_normativo_codigo,
+                relacionado.numero_normalizado or relacionado.numero_candidato,
+                relacionado.ano_candidato,
+            ]
+            if not all(obrigatorios):
+                return "O documento principal confirmado deve possuir metadados normativos mínimos."
         if (
             self.municipio_candidato
             and relacionado.municipio_candidato != self.municipio_candidato
