@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
 
-from applications.models import VersaoDocumento
+from applications.models import ProcessamentoDocumento, VersaoDocumento
 from applications.revisao_ia import ErroRevisaoIALocal, executar_revisao_versao
 
 
@@ -49,6 +49,13 @@ class Command(BaseCommand):
         reutilizados = 0
         falhas = 0
         for versao in versoes:
+            processamentos_anteriores = set(
+                versao.processamentos.filter(
+                    etapa=ProcessamentoDocumento.Etapa.VALIDACAO,
+                    status=ProcessamentoDocumento.Status.CONCLUIDO,
+                    ferramenta="ollama-revisao-markdown",
+                ).values_list("pk", flat=True)
+            )
             try:
                 processamento = executar_revisao_versao(
                     versao,
@@ -70,8 +77,7 @@ class Command(BaseCommand):
                     raise CommandError(str(erro)) from erro
                 continue
 
-            foi_reutilizado = not opcoes["forcar"] and processamento.criado_em < processamento.atualizado_em
-            if foi_reutilizado:
+            if processamento.pk in processamentos_anteriores:
                 reutilizados += 1
                 acao = "reutilizada"
             else:
