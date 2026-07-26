@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 
-def caminho_lote(instance: "ImportacaoLote", nome_arquivo: str) -> str:
+def caminho_lote(instance: ImportacaoLote, nome_arquivo: str) -> str:
     extensao = Path(nome_arquivo).suffix.lower() or ".zip"
     return f"immutable/importacoes/{instance.pk}/lote{extensao}"
 
@@ -107,15 +107,38 @@ class ItemImportacaoLote(models.Model):
     confianca = models.FloatField(default=0.0)
     avisos = models.JSONField(default=list, blank=True)
     estado = models.CharField(max_length=16, choices=Estado.choices, default=Estado.REVISAO)
-    duplicado_de = models.ForeignKey("self", on_delete=models.PROTECT, related_name="duplicatas", blank=True, null=True)
-    documento_criado = models.ForeignKey("applications.DocumentoNormativo", on_delete=models.SET_NULL, related_name="itens_importacao", blank=True, null=True)
-    versao_criada = models.ForeignKey("applications.VersaoDocumento", on_delete=models.SET_NULL, related_name="itens_importacao", blank=True, null=True)
+    duplicado_de = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        related_name="duplicatas",
+        blank=True,
+        null=True,
+    )
+    documento_criado = models.ForeignKey(
+        "applications.DocumentoNormativo",
+        on_delete=models.SET_NULL,
+        related_name="itens_importacao",
+        blank=True,
+        null=True,
+    )
+    versao_criada = models.ForeignKey(
+        "applications.VersaoDocumento",
+        on_delete=models.SET_NULL,
+        related_name="itens_importacao",
+        blank=True,
+        null=True,
+    )
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["caminho_relativo"]
-        constraints = [models.UniqueConstraint(fields=["lote", "caminho_relativo"], name="item_importacao_caminho_unico")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["lote", "caminho_relativo"],
+                name="item_importacao_caminho_unico",
+            )
+        ]
         verbose_name = "item de importação"
         verbose_name_plural = "itens de importação"
 
