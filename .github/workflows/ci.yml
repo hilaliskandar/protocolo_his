@@ -23,12 +23,32 @@ env:
   DJANGO_SECRET_KEY: ci-only-secret-key
   DJANGO_DEBUG: "false"
   PROTOCOL_DATA_ROOT: ${{ github.workspace }}/.ci-data
+  POSTGRES_DB: protocolo_his
+  POSTGRES_USER: protocolo_his
+  POSTGRES_PASSWORD: protocolo_his
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_PORT: "5432"
 
 jobs:
   quality-and-tests:
     name: Qualidade e testes
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: protocolo_his
+          POSTGRES_USER: protocolo_his
+          POSTGRES_PASSWORD: protocolo_his
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U protocolo_his -d protocolo_his"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Obter código
@@ -49,6 +69,11 @@ jobs:
 
       - name: Verificar dependências instaladas
         run: python -m pip check
+
+      - name: Impedir backend SQLite
+        run: |
+          ! grep -R "django.db.backends.sqlite3" --exclude-dir=.git .
+          ! grep -R "import sqlite3" --exclude-dir=.git .
 
       - name: Executar Ruff
         run: |
@@ -103,13 +128,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
-    env:
-      POSTGRES_DB: protocolo_his
-      POSTGRES_USER: protocolo_his
-      POSTGRES_PASSWORD: protocolo_his
-      POSTGRES_HOST: 127.0.0.1
-      POSTGRES_PORT: "5432"
 
     steps:
       - name: Obter código
