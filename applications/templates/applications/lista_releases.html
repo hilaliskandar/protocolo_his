@@ -1,0 +1,34 @@
+{% extends "applications/base.html" %}
+{% block title %}Releases de corpus — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / Releases de corpus</div>
+<h1>Releases de corpus</h1>
+<p class="subtitulo">Pacotes versionados do corpus normativo disponíveis para validação e consumo.</p>
+<section class="painel">
+    <form method="get" class="filtros">
+        <label>Aplicação
+            <select name="aplicacao">
+                <option value="">Todas</option>
+                {% for aplicacao in aplicacoes_disponiveis %}
+                    <option value="{{ aplicacao.pk }}" {% if filtro_aplicacao == aplicacao.pk|stringformat:"s" %}selected{% endif %}>{{ aplicacao.municipio }} — {{ aplicacao.titulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Estado
+            <select name="estado">
+                <option value="">Todos</option>
+                {% for valor, rotulo in estados %}
+                    <option value="{{ valor }}" {% if filtro_estado == valor %}selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="botao" type="submit">Filtrar</button>
+        <a class="botao secundario" href="{% url 'lista_releases' %}">Limpar</a>
+    </form>
+    {% if releases %}
+        <div class="tabela-wrap"><table><thead><tr><th>Aplicação</th><th>Release</th><th>Estado</th><th>Indexação</th><th>Validação</th><th>Versões documentais</th><th>Liberação</th></tr></thead><tbody>{% for release in releases %}<tr><td><a href="{% url 'detalhe_aplicacao' release.aplicacao.pk %}">{{ release.aplicacao.municipio }}</a></td><td><a href="{% url 'detalhe_release' release.pk %}">{{ release.versao }}</a></td><td><span class="status">{{ release.get_estado_display }}</span></td><td>{{ release.get_status_indexacao_display }}</td><td>{{ release.get_status_validacao_display }}</td><td>{{ release.total_versoes_documentais }}</td><td>{% if release.liberado_em %}{{ release.liberado_em }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+        <p class="vazio">Nenhuma release corresponde aos filtros informados.</p>
+    {% endif %}
+</section>
+{% endblock %}

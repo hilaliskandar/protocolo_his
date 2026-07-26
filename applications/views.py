@@ -11,10 +11,14 @@ from markdown_it import MarkdownIt
 from .models import (
     AplicacaoMunicipal,
     ArtefatoProcessado,
+    ArtigoNormativo,
+    AtoNormativo,
     DiagnosticoPagina,
     DocumentoNormativo,
     Municipio,
+    OcorrenciaDocumental,
     ProcessamentoDocumento,
+    ReleaseCorpus,
     VersaoDocumento,
 )
 
@@ -55,6 +59,10 @@ def inicio(request):
         "total_versoes": VersaoDocumento.objects.count(),
         "total_processamentos": processamentos.count(),
         "total_paginas": DiagnosticoPagina.objects.count(),
+        "total_atos": AtoNormativo.objects.count(),
+        "total_artigos": ArtigoNormativo.objects.count(),
+        "total_ocorrencias": OcorrenciaDocumental.objects.count(),
+        "total_releases": ReleaseCorpus.objects.count(),
         "documentos_verificados": DocumentoNormativo.objects.filter(
             status=DocumentoNormativo.Status.VERIFICADO
         ).count(),
@@ -102,10 +110,268 @@ def detalhe_aplicacao(request, pk: int):
         "total_paginas": DiagnosticoPagina.objects.filter(
             processamento__versao_documento__documento__aplicacao=aplicacao
         ).count(),
+        "total_atos": AtoNormativo.objects.filter(
+            versao_documento__documento__aplicacao=aplicacao
+        ).count(),
+        "total_ocorrencias": OcorrenciaDocumental.objects.filter(
+            versao_documento__documento__aplicacao=aplicacao
+        ).count(),
+        "total_releases": ReleaseCorpus.objects.filter(aplicacao=aplicacao).count(),
         "total_processamentos": processamentos.count(),
         "processamentos_recentes": processamentos.order_by("-criado_em")[:10],
     }
     return render(request, "applications/detalhe_aplicacao.html", contexto)
+
+
+def lista_atos(request):
+    atos = (
+        AtoNormativo.objects.select_related(
+            "versao_documento",
+            "versao_documento__documento",
+            "versao_documento__documento__aplicacao__municipio",
+        )
+        .annotate(
+            total_artigos=Count("artigos", distinct=True),
+            total_anexos=Count("anexos", distinct=True),
+            total_ocorrencias=Count("ocorrencias", distinct=True),
+        )
+        .order_by(
+            "versao_documento__documento__aplicacao__municipio__uf",
+            "versao_documento__documento__aplicacao__municipio__nome",
+            "versao_documento__documento__ano",
+            "versao_documento__documento__numero",
+            "pagina_inicial",
+        )
+    )
+    versao_documento = request.GET.get("versao_documento", "").strip()
+    aplicacao = request.GET.get("aplicacao", "").strip()
+    if versao_documento:
+        atos = atos.filter(versao_documento_id=versao_documento)
+    if aplicacao:
+        atos = atos.filter(versao_documento__documento__aplicacao_id=aplicacao)
+    contexto = {
+        "atos": atos,
+        "filtro_versao_documento": versao_documento,
+        "filtro_aplicacao": aplicacao,
+        "versoes_disponiveis": VersaoDocumento.objects.select_related(
+            "documento",
+            "documento__aplicacao__municipio",
+        ).order_by(
+            "documento__aplicacao__municipio__uf",
+            "documento__aplicacao__municipio__nome",
+            "documento__ano",
+            "documento__numero",
+            "versao",
+        ),
+        "aplicacoes_disponiveis": AplicacaoMunicipal.objects.select_related("municipio").order_by(
+            "municipio__uf",
+            "municipio__nome",
+            "titulo",
+        ),
+    }
+    return render(request, "applications/lista_atos.html", contexto)
+
+
+def detalhe_ato(request, pk: int):
+    ato = get_object_or_404(
+        AtoNormativo.objects.select_related(
+            "versao_documento",
+            "versao_documento__documento",
+            "versao_documento__documento__aplicacao__municipio",
+        ).prefetch_related(
+            "artigos__ocorrencias",
+            "anexos",
+            "ocorrencias",
+        ),
+        pk=pk,
+    )
+    return render(
+        request,
+        "applications/detalhe_ato.html",
+        {
+            "ato": ato,
+            "metadados_json": json.dumps(ato.metadados, ensure_ascii=False, indent=2),
+        },
+    )
+
+
+def lista_artigos(request):
+    artigos = (
+        ArtigoNormativo.objects.select_related(
+            "ato",
+            "ato__versao_documento",
+            "ato__versao_documento__documento",
+            "ato__versao_documento__documento__aplicacao__municipio",
+        )
+        .annotate(total_ocorrencias=Count("ocorrencias", distinct=True))
+        .order_by(
+            "ato__versao_documento__documento__aplicacao__municipio__uf",
+            "ato__versao_documento__documento__aplicacao__municipio__nome",
+            "ato__versao_documento__documento__ano",
+            "ato__versao_documento__documento__numero",
+            "ato__pagina_inicial",
+            "pagina_inicial",
+        )
+    )
+    status_sequencia = request.GET.get("status_sequencia", "").strip()
+    status_auditoria = request.GET.get("status_auditoria", "").strip()
+    if status_sequencia:
+        artigos = artigos.filter(status_sequencia=status_sequencia)
+    if status_auditoria:
+        artigos = artigos.filter(status_auditoria=status_auditoria)
+    contexto = {
+        "artigos": artigos,
+        "filtro_status_sequencia": status_sequencia,
+        "filtro_status_auditoria": status_auditoria,
+        "status_sequencias": ArtigoNormativo.StatusSequencia.choices,
+        "status_auditorias": ArtigoNormativo.StatusAuditoria.choices,
+    }
+    return render(request, "applications/lista_artigos.html", contexto)
+
+
+def detalhe_artigo(request, pk: int):
+    artigo = get_object_or_404(
+        ArtigoNormativo.objects.select_related(
+            "ato",
+            "ato__versao_documento",
+            "ato__versao_documento__documento",
+            "ato__versao_documento__documento__aplicacao__municipio",
+        ).prefetch_related("ocorrencias__adjudicacao"),
+        pk=pk,
+    )
+    return render(
+        request,
+        "applications/detalhe_artigo.html",
+        {
+            "artigo": artigo,
+            "estrutura_json": json.dumps(artigo.estrutura, ensure_ascii=False, indent=2),
+        },
+    )
+
+
+def lista_ocorrencias(request):
+    ocorrencias = (
+        OcorrenciaDocumental.objects.select_related(
+            "versao_documento",
+            "versao_documento__documento",
+            "versao_documento__documento__aplicacao__municipio",
+            "ato",
+            "artigo",
+            "anexo",
+            "adjudicacao",
+        )
+        .order_by(
+            "versao_documento__documento__aplicacao__municipio__uf",
+            "versao_documento__documento__aplicacao__municipio__nome",
+            "-severidade",
+            "estado",
+            "pagina",
+            "pk",
+        )
+    )
+    severidade = request.GET.get("severidade", "").strip()
+    estado = request.GET.get("estado", "").strip()
+    aplicacao = request.GET.get("aplicacao", "").strip()
+    if severidade:
+        ocorrencias = ocorrencias.filter(severidade=severidade)
+    if estado:
+        ocorrencias = ocorrencias.filter(estado=estado)
+    if aplicacao:
+        ocorrencias = ocorrencias.filter(versao_documento__documento__aplicacao_id=aplicacao)
+    contexto = {
+        "ocorrencias": ocorrencias,
+        "filtro_severidade": severidade,
+        "filtro_estado": estado,
+        "filtro_aplicacao": aplicacao,
+        "severidades": OcorrenciaDocumental.Severidade.choices,
+        "estados": OcorrenciaDocumental.Estado.choices,
+        "aplicacoes_disponiveis": AplicacaoMunicipal.objects.select_related("municipio").order_by(
+            "municipio__uf",
+            "municipio__nome",
+            "titulo",
+        ),
+    }
+    return render(request, "applications/lista_ocorrencias.html", contexto)
+
+
+def detalhe_ocorrencia(request, pk: int):
+    ocorrencia = get_object_or_404(
+        OcorrenciaDocumental.objects.select_related(
+            "versao_documento",
+            "versao_documento__documento",
+            "versao_documento__documento__aplicacao__municipio",
+            "ato",
+            "artigo",
+            "anexo",
+            "resolvida_por",
+            "adjudicacao",
+            "adjudicacao__responsavel",
+        ),
+        pk=pk,
+    )
+    adjudicacao = getattr(ocorrencia, "adjudicacao", None)
+    return render(
+        request,
+        "applications/detalhe_ocorrencia.html",
+        {
+            "ocorrencia": ocorrencia,
+            "adjudicacao": adjudicacao,
+            "evidencias_json": json.dumps(ocorrencia.evidencias, ensure_ascii=False, indent=2),
+        },
+    )
+
+
+def lista_releases(request):
+    releases = (
+        ReleaseCorpus.objects.select_related("aplicacao__municipio", "liberado_por")
+        .annotate(total_versoes_documentais=Count("documentos_release", distinct=True))
+        .order_by(
+            "aplicacao__municipio__uf",
+            "aplicacao__municipio__nome",
+            "-criado_em",
+        )
+    )
+    estado = request.GET.get("estado", "").strip()
+    aplicacao = request.GET.get("aplicacao", "").strip()
+    if estado:
+        releases = releases.filter(estado=estado)
+    if aplicacao:
+        releases = releases.filter(aplicacao_id=aplicacao)
+    contexto = {
+        "releases": releases,
+        "filtro_estado": estado,
+        "filtro_aplicacao": aplicacao,
+        "estados": ReleaseCorpus.Estado.choices,
+        "aplicacoes_disponiveis": AplicacaoMunicipal.objects.select_related("municipio").order_by(
+            "municipio__uf",
+            "municipio__nome",
+            "titulo",
+        ),
+    }
+    return render(request, "applications/lista_releases.html", contexto)
+
+
+def detalhe_release(request, pk: int):
+    release = get_object_or_404(
+        ReleaseCorpus.objects.select_related(
+            "aplicacao__municipio",
+            "liberado_por",
+        ).prefetch_related(
+            "documentos_release__versao_documento__documento__tipo",
+            "documentos_release__versao_documento__documento__aplicacao__municipio",
+        ),
+        pk=pk,
+    )
+    vinculos = release.documentos_release.all()
+    return render(
+        request,
+        "applications/detalhe_release.html",
+        {
+            "release": release,
+            "vinculos": vinculos,
+            "metricas_json": json.dumps(release.metricas, ensure_ascii=False, indent=2),
+        },
+    )
 
 
 def detalhe_documento(request, pk: int):

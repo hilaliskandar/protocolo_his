@@ -1,0 +1,34 @@
+{% extends "applications/base.html" %}
+{% block title %}Atos normativos — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / Atos normativos</div>
+<h1>Atos normativos</h1>
+<p class="subtitulo">Recorte dos atos extraídos das versões documentais já qualificadas.</p>
+<section class="painel">
+    <form method="get" class="filtros">
+        <label>Aplicação
+            <select name="aplicacao">
+                <option value="">Todas</option>
+                {% for aplicacao in aplicacoes_disponiveis %}
+                    <option value="{{ aplicacao.pk }}" {% if filtro_aplicacao == aplicacao.pk|stringformat:"s" %}selected{% endif %}>{{ aplicacao.municipio }} — {{ aplicacao.titulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Versão documental
+            <select name="versao_documento">
+                <option value="">Todas</option>
+                {% for versao in versoes_disponiveis %}
+                    <option value="{{ versao.pk }}" {% if filtro_versao_documento == versao.pk|stringformat:"s" %}selected{% endif %}>{{ versao.documento.aplicacao.municipio }} — {{ versao.documento }} — versão {{ versao.versao }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="botao" type="submit">Filtrar</button>
+        <a class="botao secundario" href="{% url 'lista_atos' %}">Limpar</a>
+    </form>
+    {% if atos %}
+        <div class="tabela-wrap"><table><thead><tr><th>Aplicação</th><th>Ato</th><th>Documento</th><th>Páginas</th><th>Natureza</th><th>Auditoria</th><th>Artigos</th><th>Anexos</th><th>Ocorrências</th></tr></thead><tbody>{% for ato in atos %}<tr><td><a href="{% url 'detalhe_aplicacao' ato.versao_documento.documento.aplicacao.pk %}">{{ ato.versao_documento.documento.aplicacao.municipio }}</a></td><td><a href="{% url 'detalhe_ato' ato.pk %}">{{ ato }}</a><br><span class="muted">{{ ato.identificador }}</span></td><td><a href="{% url 'detalhe_documento' ato.versao_documento.documento.pk %}">{{ ato.versao_documento.documento }}</a><br><span class="muted">versão {{ ato.versao_documento.versao }}</span></td><td>{{ ato.pagina_inicial }}–{{ ato.pagina_final }}</td><td>{{ ato.get_natureza_texto_display }}</td><td><span class="status">{{ ato.get_status_auditoria_display }}</span></td><td>{{ ato.total_artigos }}</td><td>{{ ato.total_anexos }}</td><td>{{ ato.total_ocorrencias }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+        <p class="vazio">Nenhum ato corresponde aos filtros informados.</p>
+    {% endif %}
+</section>
+{% endblock %}

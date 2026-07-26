@@ -1,0 +1,34 @@
+{% extends "applications/base.html" %}
+{% block title %}Artigos normativos — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / Artigos normativos</div>
+<h1>Artigos normativos</h1>
+<p class="subtitulo">Leitura estruturada dos dispositivos extraídos dos atos normativos.</p>
+<section class="painel">
+    <form method="get" class="filtros">
+        <label>Status da sequência
+            <select name="status_sequencia">
+                <option value="">Todos</option>
+                {% for valor, rotulo in status_sequencias %}
+                    <option value="{{ valor }}" {% if filtro_status_sequencia == valor %}selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Status da auditoria
+            <select name="status_auditoria">
+                <option value="">Todos</option>
+                {% for valor, rotulo in status_auditorias %}
+                    <option value="{{ valor }}" {% if filtro_status_auditoria == valor %}selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="botao" type="submit">Filtrar</button>
+        <a class="botao secundario" href="{% url 'lista_artigos' %}">Limpar</a>
+    </form>
+    {% if artigos %}
+        <div class="tabela-wrap"><table><thead><tr><th>Aplicação</th><th>Artigo</th><th>Ato</th><th>Páginas</th><th>Sequência</th><th>Auditoria</th><th>Ocorrências</th></tr></thead><tbody>{% for artigo in artigos %}<tr><td><a href="{% url 'detalhe_aplicacao' artigo.ato.versao_documento.documento.aplicacao.pk %}">{{ artigo.ato.versao_documento.documento.aplicacao.municipio }}</a></td><td><a href="{% url 'detalhe_artigo' artigo.pk %}">{{ artigo.rotulo }}</a><br><span class="muted">{{ artigo.ato.versao_documento.documento }}</span></td><td><a href="{% url 'detalhe_ato' artigo.ato.pk %}">{{ artigo.ato }}</a></td><td>{{ artigo.pagina_inicial }}–{{ artigo.pagina_final }}</td><td><span class="status">{{ artigo.get_status_sequencia_display }}</span></td><td><span class="status">{{ artigo.get_status_auditoria_display }}</span></td><td>{{ artigo.total_ocorrencias }}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+        <p class="vazio">Nenhum artigo corresponde aos filtros informados.</p>
+    {% endif %}
+</section>
+{% endblock %}

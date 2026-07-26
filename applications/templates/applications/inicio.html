@@ -12,6 +12,10 @@
     <div class="card">Em quarentena <span class="numero">{{ documentos_quarentena }}</span></div>
     <div class="card">Processamentos <span class="numero">{{ total_processamentos }}</span></div>
     <div class="card">Páginas diagnosticadas <span class="numero">{{ total_paginas }}</span></div>
+    <div class="card">Atos normativos <span class="numero">{{ total_atos }}</span></div>
+    <div class="card">Artigos estruturados <span class="numero">{{ total_artigos }}</span></div>
+    <div class="card">Ocorrências <span class="numero">{{ total_ocorrencias }}</span></div>
+    <div class="card">Releases de corpus <span class="numero">{{ total_releases }}</span></div>
     <div class="card">Páginas destinadas a OCR <span class="numero">{{ paginas_ocr }}</span></div>
     <div class="card">Páginas visuais <span class="numero">{{ paginas_visuais }}</span></div>
 </section>
@@ -39,6 +43,9 @@
             <dt>Leitura técnica</dt><dd>{{ total_paginas }} páginas estruturadas na base</dd>
         </dl>
         <div class="acoes">
+            <a class="botao secundario" href="{% url 'lista_atos' %}">Atos</a>
+            <a class="botao secundario" href="{% url 'lista_ocorrencias' %}">Ocorrências</a>
+            <a class="botao secundario" href="{% url 'lista_releases' %}">Releases</a>
             <a class="botao secundario" href="/admin/">Administração</a>
             <a class="botao secundario" href="/health/">Saúde do serviço</a>
         </div>

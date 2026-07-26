@@ -1,0 +1,42 @@
+{% extends "applications/base.html" %}
+{% block title %}Ocorrências documentais — Protocolo HIS{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / Ocorrências documentais</div>
+<h1>Ocorrências documentais</h1>
+<p class="subtitulo">Irregularidades e pontos de atenção registrados durante a auditoria do corpus.</p>
+<section class="painel">
+    <form method="get" class="filtros">
+        <label>Aplicação
+            <select name="aplicacao">
+                <option value="">Todas</option>
+                {% for aplicacao in aplicacoes_disponiveis %}
+                    <option value="{{ aplicacao.pk }}" {% if filtro_aplicacao == aplicacao.pk|stringformat:"s" %}selected{% endif %}>{{ aplicacao.municipio }} — {{ aplicacao.titulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Severidade
+            <select name="severidade">
+                <option value="">Todas</option>
+                {% for valor, rotulo in severidades %}
+                    <option value="{{ valor }}" {% if filtro_severidade == valor %}selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Estado
+            <select name="estado">
+                <option value="">Todos</option>
+                {% for valor, rotulo in estados %}
+                    <option value="{{ valor }}" {% if filtro_estado == valor %}selected{% endif %}>{{ rotulo }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <button class="botao" type="submit">Filtrar</button>
+        <a class="botao secundario" href="{% url 'lista_ocorrencias' %}">Limpar</a>
+    </form>
+    {% if ocorrencias %}
+        <div class="tabela-wrap"><table><thead><tr><th>Aplicação</th><th>Ocorrência</th><th>Severidade</th><th>Estado</th><th>Documento</th><th>Contexto</th><th>Adjudicação</th></tr></thead><tbody>{% for ocorrencia in ocorrencias %}<tr><td><a href="{% url 'detalhe_aplicacao' ocorrencia.versao_documento.documento.aplicacao.pk %}">{{ ocorrencia.versao_documento.documento.aplicacao.municipio }}</a></td><td><a href="{% url 'detalhe_ocorrencia' ocorrencia.pk %}">{{ ocorrencia.categoria }}</a><br><span class="muted">{{ ocorrencia.descricao|truncatechars:110 }}</span></td><td><span class="status">{{ ocorrencia.get_severidade_display }}</span></td><td><span class="status">{{ ocorrencia.get_estado_display }}</span></td><td><a href="{% url 'detalhe_documento' ocorrencia.versao_documento.documento.pk %}">{{ ocorrencia.versao_documento.documento }}</a><br><span class="muted">versão {{ ocorrencia.versao_documento.versao }}</span></td><td>{% if ocorrencia.artigo %}<a href="{% url 'detalhe_artigo' ocorrencia.artigo.pk %}">{{ ocorrencia.artigo.rotulo }}</a>{% elif ocorrencia.ato %}<a href="{% url 'detalhe_ato' ocorrencia.ato.pk %}">{{ ocorrencia.ato }}</a>{% elif ocorrencia.anexo %}{{ ocorrencia.anexo.titulo }}{% else %}Página {{ ocorrencia.pagina|default:"—" }}{% endif %}</td><td>{% if ocorrencia.adjudicacao %}{{ ocorrencia.adjudicacao.get_estado_resultante_display }}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}
+        <p class="vazio">Nenhuma ocorrência corresponde aos filtros informados.</p>
+    {% endif %}
+</section>
+{% endblock %}
