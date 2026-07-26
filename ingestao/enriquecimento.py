@@ -14,6 +14,12 @@ RE_ATO_TEXTO = re.compile(
     re.IGNORECASE,
 )
 RE_ANO = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})\b")
+RE_REFERENCIA_ATUALIZACAO = re.compile(
+    r"(?:texto\s+compilado|compila(?:ção|do)|atualizad[oa]\s+at[eé]|"
+    r"alterad[oa]\s+pela|reda(?:ção|cao)\s+dada\s+pela|inclu[ií]d[oa]\s+pela|"
+    r"revogad[oa]\s+pela)\s*$",
+    re.IGNORECASE,
+)
 LIMITE_PAGINA_VAZIA = 10
 LIMITE_TEXTO_UTIL = 80
 
@@ -36,18 +42,24 @@ class DiagnosticoPreliminar:
     caracteres_por_pagina: tuple[int, ...] = ()
 
 
+def _eh_referencia_de_atualizacao(texto: str, inicio: int) -> bool:
+    contexto = re.sub(r"\s+", " ", texto[max(0, inicio - 120) : inicio]).strip()
+    return bool(RE_REFERENCIA_ATUALIZACAO.search(contexto))
+
+
 def _metadados_do_texto(texto: str) -> tuple[str, int | None]:
-    achado = RE_ATO_TEXTO.search(texto)
-    if not achado:
-        return "", None
-    numero = achado.group("numero").strip(" .-/")
-    ano_abreviado = achado.group("ano_abreviado")
-    ano = int(ano_abreviado) if ano_abreviado else None
-    if ano is None:
-        trecho = texto[achado.end() : achado.end() + 180]
-        ano_achado = RE_ANO.search(trecho)
-        ano = int(ano_achado.group(1)) if ano_achado else None
-    return numero, ano
+    for achado in RE_ATO_TEXTO.finditer(texto):
+        if _eh_referencia_de_atualizacao(texto, achado.start()):
+            continue
+        numero = achado.group("numero").strip(" .-/")
+        ano_abreviado = achado.group("ano_abreviado")
+        ano = int(ano_abreviado) if ano_abreviado else None
+        if ano is None:
+            trecho = texto[achado.end() : achado.end() + 180]
+            ano_achado = RE_ANO.search(trecho)
+            ano = int(ano_achado.group(1)) if ano_achado else None
+        return numero, ano
+    return "", None
 
 
 def _classificar_rota(contagens: list[int]) -> tuple[str, str | None]:
