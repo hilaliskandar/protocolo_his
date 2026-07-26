@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "applications.apps.ApplicationsConfig",
+    "ingestao.apps.IngestaoConfig",
 ]
 
 MIDDLEWARE = [
@@ -80,6 +81,15 @@ OLLAMA_REVIEW_MAX_CHARS = int(os.getenv("OLLAMA_REVIEW_MAX_CHARS", "8000"))
 OLLAMA_REVIEW_MIN_CONFIDENCE = float(os.getenv("OLLAMA_REVIEW_MIN_CONFIDENCE", "0.90"))
 OLLAMA_REVIEW_MAX_CHANGE = float(os.getenv("OLLAMA_REVIEW_MAX_CHANGE", "0.20"))
 OLLAMA_REVIEW_MAX_REMOVAL = float(os.getenv("OLLAMA_REVIEW_MAX_REMOVAL", "0.08"))
+
+API_INGESTAO_TOKEN = os.getenv("API_INGESTAO_TOKEN", "")
+INGESTAO_MAX_ZIP_BYTES = int(os.getenv("INGESTAO_MAX_ZIP_BYTES", str(500 * 1024 * 1024)))
+INGESTAO_MAX_ARQUIVOS = int(os.getenv("INGESTAO_MAX_ARQUIVOS", "1000"))
+INGESTAO_MAX_DESCOMPACTADO_BYTES = int(
+    os.getenv("INGESTAO_MAX_DESCOMPACTADO_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+INGESTAO_MAX_RAZAO_COMPACTACAO = float(os.getenv("INGESTAO_MAX_RAZAO_COMPACTACAO", "100"))
+INGESTAO_CONFIANCA_AUTOMATICA = float(os.getenv("INGESTAO_CONFIANCA_AUTOMATICA", "0.85"))
 
 X_FRAME_OPTIONS = "SAMEORIGIN"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
