@@ -175,6 +175,24 @@ def _classificar(caminho: str, uf: str) -> dict:
     }
 
 
+def _registrar_divergencia(dados: dict, campo: str, aceito, sugerido) -> None:
+    divergencias = list(dados.get("divergencias_metadados", []))
+    divergencias.append(
+        {
+            "campo": campo,
+            "valor_aceito": aceito,
+            "valor_sugerido": sugerido,
+            "fonte_aceita": dados.get("fontes_metadados", {}).get(campo, ""),
+            "fonte_sugerida": "texto_primeiras_paginas",
+        }
+    )
+    dados["divergencias_metadados"] = divergencias
+    dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+    dados["avisos"].append(
+        f"{campo.replace('_', ' ')} encontrado no texto diverge do metadado estrutural"
+    )
+
+
 def _aplicar_diagnostico(dados: dict, caminho_temporario: str) -> None:
     diagnostico = diagnosticar_pdf(caminho_temporario)
     dados.update(
@@ -184,37 +202,43 @@ def _aplicar_diagnostico(dados: dict, caminho_temporario: str) -> None:
             "caracteres_amostra": diagnostico.caracteres_amostra,
             "rota_sugerida": diagnostico.rota_sugerida,
             "texto_amostra": diagnostico.texto_amostra,
+            "numero_sugerido_texto": diagnostico.numero_texto,
+            "numero_sugerido_normalizado": normalizar_numero(diagnostico.numero_texto),
+            "ano_sugerido_texto": diagnostico.ano_texto,
+            "fontes_sugestoes": {
+                chave: "texto_primeiras_paginas"
+                for chave, valor in {
+                    "numero_sugerido_texto": diagnostico.numero_texto,
+                    "ano_sugerido_texto": diagnostico.ano_texto,
+                }.items()
+                if valor
+            },
+            "divergencias_metadados": [],
         }
     )
     dados["avisos"] = [*dados["avisos"], *diagnostico.avisos]
-    fontes = dict(dados.get("fontes_metadados", {}))
-    if not dados["numero_candidato"] and diagnostico.numero_texto:
-        dados["numero_candidato"] = diagnostico.numero_texto
-        dados["numero_normalizado"] = normalizar_numero(diagnostico.numero_texto)
-        fontes["numero_candidato"] = "texto_primeiras_paginas"
-        dados["avisos"] = [
-            aviso for aviso in dados["avisos"] if aviso != "número do ato não identificado"
-        ]
-    if not dados["ano_candidato"] and diagnostico.ano_texto:
-        dados["ano_candidato"] = diagnostico.ano_texto
-        fontes["ano_candidato"] = "texto_primeiras_paginas"
-        dados["avisos"] = [
-            aviso for aviso in dados["avisos"] if aviso != "ano do ato não identificado"
-        ]
-    dados["fontes_metadados"] = fontes
-    completo = bool(
-        dados["municipio_candidato"]
-        and dados["tipo_normativo_codigo"]
-        and dados["numero_candidato"]
-        and dados["ano_candidato"]
-    )
-    if dados["natureza"] == ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL and completo:
-        if fontes.get("numero_candidato") == "texto_primeiras_paginas":
-            dados["confianca"] = min(1.0, dados["confianca"] + 0.15)
-        if fontes.get("ano_candidato") == "texto_primeiras_paginas":
-            dados["confianca"] = min(1.0, dados["confianca"] + 0.15)
-        if dados["confianca"] >= settings.INGESTAO_CONFIANCA_AUTOMATICA:
-            dados["estado"] = ItemImportacaoLote.Estado.PRONTO
+
+    numero_aceito = dados.get("numero_candidato", "")
+    numero_sugerido = diagnostico.numero_texto
+    if numero_aceito and numero_sugerido:
+        if normalizar_numero(numero_aceito) != normalizar_numero(numero_sugerido):
+            _registrar_divergencia(dados, "numero_candidato", numero_aceito, numero_sugerido)
+    elif numero_sugerido:
+        dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+        dados["avisos"].append(
+            "número sugerido pelo texto requer adjudicação humana antes da confirmação"
+        )
+
+    ano_aceito = dados.get("ano_candidato")
+    ano_sugerido = diagnostico.ano_texto
+    if ano_aceito and ano_sugerido:
+        if ano_aceito != ano_sugerido:
+            _registrar_divergencia(dados, "ano_candidato", ano_aceito, ano_sugerido)
+    elif ano_sugerido:
+        dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+        dados["avisos"].append(
+            "ano sugerido pelo texto requer adjudicação humana antes da confirmação"
+        )
 
 
 def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict, list[str]]:
@@ -309,8 +333,8 @@ def _vincular_documentos_apoio(lote: ImportacaoLote) -> None:
             .first()
         )
         if principal:
-            apoio.documento_principal_candidato = principal
-            apoio.save(update_fields=["documento_principal_candidato", "atualizado_em"])
+            apoio.documento_principal_sugerido = principal
+            apoio.save(update_fields=["documento_principal_sugerido", "atualizado_em"])
 
 
 def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
