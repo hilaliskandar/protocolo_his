@@ -15,7 +15,7 @@ RE_ATO_TEXTO = re.compile(
 )
 RE_ANO = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})\b")
 RE_REFERENCIA_ATUALIZACAO = re.compile(
-    r"(?:texto\s+compilado|compila(?:ção|do)|atualizad[oa]\s+at[eé]|"
+    r"(?:texto\s+compilado|compila(?:ção|do)|atualizad[oa]\s+at[eé](?:\s+a)?|"
     r"alterad[oa]\s+pela|reda(?:ção|cao)\s+dada\s+pela|inclu[ií]d[oa]\s+pela|"
     r"revogad[oa]\s+pela)\s*$",
     re.IGNORECASE,
