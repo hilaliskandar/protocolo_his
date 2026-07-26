@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "protocolo-his"
-version = "0.3.5"
+version = "0.3.6"
 description = "Plataforma para execução auditável do Protocolo HIS"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -64,7 +64,7 @@ include = [
 ]
 
 [tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings_test"
+DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py", "*_test.py", "tests.py"]
 
 [tool.ruff]

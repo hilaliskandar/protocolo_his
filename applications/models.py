@@ -211,21 +211,32 @@ class VersaoDocumento(models.Model):
 
     def _calcular_sha256(self) -> str:
         resumo = sha256()
-        arquivo = self.arquivo.file
-        posicao_original = arquivo.tell() if arquivo.seekable() else None
-        arquivo.seek(0)
+        estava_fechado = self.arquivo.closed
+        arquivo = None
+        posicao_original = None
 
-        if hasattr(arquivo, "chunks"):
-            for bloco in arquivo.chunks():
-                resumo.update(bloco)
-        else:
-            while bloco := arquivo.read(1024 * 1024):
-                resumo.update(bloco)
+        try:
+            if estava_fechado:
+                self.arquivo.open("rb")
 
-        if posicao_original is not None:
-            arquivo.seek(posicao_original)
-        return resumo.hexdigest()
+            arquivo = self.arquivo.file
+            if arquivo.seekable():
+                posicao_original = arquivo.tell()
+                arquivo.seek(0)
 
+            if hasattr(arquivo, "chunks"):
+                for bloco in arquivo.chunks():
+                    resumo.update(bloco)
+            else:
+                while bloco := arquivo.read(1024 * 1024):
+                    resumo.update(bloco)
+
+            return resumo.hexdigest()
+        finally:
+            if estava_fechado:
+                self.arquivo.close()
+            elif arquivo is not None and posicao_original is not None:
+                arquivo.seek(posicao_original)
     def _localizar_duplicado(self) -> VersaoDocumento | None:
         consulta = VersaoDocumento.objects.filter(
             documento__aplicacao=self.documento.aplicacao,

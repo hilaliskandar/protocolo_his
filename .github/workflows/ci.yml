@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "incremento/**"
+      - "fix/**"
   pull_request:
     branches:
       - main
@@ -22,12 +23,32 @@ env:
   DJANGO_SECRET_KEY: ci-only-secret-key
   DJANGO_DEBUG: "false"
   PROTOCOL_DATA_ROOT: ${{ github.workspace }}/.ci-data
+  POSTGRES_DB: protocolo_his
+  POSTGRES_USER: protocolo_his
+  POSTGRES_PASSWORD: protocolo_his
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_PORT: "5432"
 
 jobs:
   quality-and-tests:
     name: Qualidade e testes
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: protocolo_his
+          POSTGRES_USER: protocolo_his
+          POSTGRES_PASSWORD: protocolo_his
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U protocolo_his -d protocolo_his"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Obter código
@@ -49,6 +70,14 @@ jobs:
       - name: Verificar dependências instaladas
         run: python -m pip check
 
+      - name: Confirmar PostgreSQL canônico
+        run: |
+          python -c "import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings'); import django; django.setup(); from django.conf import settings; engine=settings.DATABASES['default']['ENGINE']; assert engine == 'django.db.backends.postgresql', engine"
+          if git grep -n -E 'django\.db\.backends\.sqlite3|^[[:space:]]*import sqlite3|config\.settings_test' -- '*.py' '*.toml'; then
+            echo "Referência indevida ao SQLite encontrada."
+            exit 1
+          fi
+
       - name: Executar Ruff
         run: |
           mkdir -p artifacts
@@ -59,10 +88,10 @@ jobs:
           exit $status
 
       - name: Executar verificações do Django
-        run: python manage.py check --settings=config.settings_test
+        run: python manage.py check
 
       - name: Verificar migrações pendentes
-        run: python manage.py makemigrations --check --dry-run --settings=config.settings_test
+        run: python manage.py makemigrations --check --dry-run
 
       - name: Executar testes
         run: |
@@ -84,9 +113,9 @@ jobs:
           retention-days: 14
 
   postgres-migrations:
-    name: PostgreSQL e migrações
+    name: PostgreSQL, migrações e testes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -102,13 +131,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
-    env:
-      POSTGRES_DB: protocolo_his
-      POSTGRES_USER: protocolo_his
-      POSTGRES_PASSWORD: protocolo_his
-      POSTGRES_HOST: 127.0.0.1
-      POSTGRES_PORT: "5432"
 
     steps:
       - name: Obter código
@@ -135,3 +157,18 @@ jobs:
 
       - name: Confirmar ausência de migrações não versionadas
         run: python manage.py makemigrations --check --dry-run
+
+      - name: Executar testes com PostgreSQL
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          python manage.py test --verbosity 2 2>&1 | tee artifacts/postgresql-tests.log
+
+      - name: Publicar diagnóstico PostgreSQL
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgresql-results-${{ github.run_id }}
+          path: artifacts/postgresql-tests.log
+          if-no-files-found: warn
+          retention-days: 14
