@@ -4,7 +4,6 @@ from tempfile import TemporaryDirectory
 
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import connections
 from django.test import TestCase
 from django.urls import reverse
 
@@ -21,11 +20,6 @@ from .models import (
 
 
 class TestesInterfaceQualificacao(TestCase):
-    @classmethod
-    def setUpClass(cls):
-        connections.close_all()
-        super().setUpClass()
-
     def setUp(self):
         self.municipio = Municipio.objects.create(
             nome="Recife",
@@ -139,4 +133,6 @@ class TestesInterfaceQualificacao(TestCase):
         self.assertContains(detalhe, "&quot;page_count&quot;: 2", html=False)
         self.assertEqual(download.status_code, 200)
         self.assertIn("attachment", download.headers["Content-Disposition"])
-        download.close()
+        for fechar in download._resource_closers:
+            fechar()
+        download._resource_closers.clear()

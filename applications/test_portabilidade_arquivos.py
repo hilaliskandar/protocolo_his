@@ -1,3 +1,4 @@
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -14,34 +15,71 @@ from applications.models import (
 
 
 class TestesPortabilidadeArquivos(TestCase):
-    def test_calculo_sha256_fecha_handle_aberto_internamente(self):
+    CONTEUDO = b"%PDF-1.7\nconteudo"
+
+    def setUp(self):
         municipio = Municipio.objects.create(nome="Recife", uf="PE")
         aplicacao = AplicacaoMunicipal.objects.create(
             municipio=municipio,
             titulo="Aplicação Recife",
         )
-        documento = DocumentoNormativo.objects.create(
+        self.documento = DocumentoNormativo.objects.create(
             aplicacao=aplicacao,
             tipo=TipoNormativo.objects.get(codigo="lei_complementar"),
             numero="2",
             ano=2021,
             titulo="Plano Diretor",
         )
+        self.resumo_esperado = sha256(self.CONTEUDO).hexdigest()
 
+    def _criar_versao(self):
+        criada = VersaoDocumento.objects.create(
+            documento=self.documento,
+            arquivo=SimpleUploadedFile(
+                "hash-pendente.pdf",
+                self.CONTEUDO,
+                "application/pdf",
+            ),
+            mime_type="application/pdf",
+        )
+        return criada, VersaoDocumento.objects.get(pk=criada.pk)
+
+    def test_calculo_sha256_fecha_handle_aberto_internamente(self):
         with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
-            criada = VersaoDocumento.objects.create(
-                documento=documento,
-                arquivo=SimpleUploadedFile(
-                    "hash-pendente.pdf",
-                    b"%PDF-1.7\nconteudo",
-                    "application/pdf",
-                ),
-                mime_type="application/pdf",
-            )
-            versao = VersaoDocumento.objects.get(pk=criada.pk)
+            criada, versao = self._criar_versao()
+            try:
+                self.assertTrue(versao.arquivo.closed)
+                resumo = versao._calcular_sha256()
+                self.assertEqual(resumo, self.resumo_esperado)
+                self.assertEqual(resumo, criada.sha256)
+                self.assertTrue(versao.arquivo.closed)
+            finally:
+                criada.arquivo.close()
+                versao.arquivo.close()
 
-            self.assertTrue(versao.arquivo.closed)
-            resumo = versao._calcular_sha256()
+    def test_calculo_sha256_pode_ser_executado_duas_vezes(self):
+        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
+            criada, versao = self._criar_versao()
+            try:
+                primeiro = versao._calcular_sha256()
+                segundo = versao._calcular_sha256()
+                self.assertEqual(primeiro, self.resumo_esperado)
+                self.assertEqual(segundo, self.resumo_esperado)
+                self.assertTrue(versao.arquivo.closed)
+            finally:
+                criada.arquivo.close()
+                versao.arquivo.close()
 
-            self.assertEqual(resumo, criada.sha256)
-            self.assertTrue(versao.arquivo.closed)
+    def test_calculo_sha256_preserva_handle_aberto_e_posicao(self):
+        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
+            criada, versao = self._criar_versao()
+            try:
+                versao.arquivo.open("rb")
+                versao.arquivo.seek(5)
+                resumo = versao._calcular_sha256()
+                self.assertEqual(resumo, self.resumo_esperado)
+                self.assertFalse(versao.arquivo.closed)
+                self.assertEqual(versao.arquivo.tell(), 5)
+            finally:
+                criada.arquivo.close()
+                versao.arquivo.close()
