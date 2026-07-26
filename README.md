@@ -1206,6 +1206,8 @@ O projeto é open source e está em desenvolvimento incremental. Alterações me
 
 ## Apêndice — versionamento do desenvolvimento
 
+**Versão corrente documentada:** `0.3.3`.
+
 A plataforma adota uma convenção de versionamento própria para registrar o avanço do protótipo antes da versão estável `1.0.0`.
 
 ### Regra de numeração
