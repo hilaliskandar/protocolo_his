@@ -78,6 +78,7 @@ extend-exclude = ["*/migrations/*.py"]
 "applications/revisao_ia.py" = ["C405"]
 "ingestao/models.py" = ["RUF012"]
 "ingestao/services.py" = ["I001", "FURB167"]
+"versionamento/models.py" = ["RUF012"]
 
 [tool.mypy]
 python_version = "3.12"
