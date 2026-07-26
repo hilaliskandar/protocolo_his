@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError, PdfStreamError
 
 RE_ATO_TEXTO = re.compile(
     r"\b(?:lei\s+complementar|lei\s+ordin[aá]ria|lei|lc)\s*"
@@ -14,6 +15,7 @@ RE_ATO_TEXTO = re.compile(
     re.IGNORECASE,
 )
 RE_ANO = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})\b")
+ERROS_PDF = (PdfReadError, PdfStreamError, OSError, KeyError, TypeError, ValueError, AttributeError)
 
 
 def normalizar_numero(valor: str) -> str:
@@ -56,7 +58,7 @@ def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> Diagnostic
         for pagina in leitor.pages[:paginas_amostradas]:
             try:
                 textos.append(pagina.extract_text() or "")
-            except Exception as erro:  # pypdf pode falhar isoladamente em uma página malformada
+            except ERROS_PDF as erro:
                 textos.append("")
                 avisos.append(f"extração preliminar falhou em uma página: {erro}")
         texto = "\n".join(textos)
@@ -81,7 +83,7 @@ def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> Diagnostic
             ano_texto=ano,
             avisos=avisos,
         )
-    except Exception as erro:
+    except ERROS_PDF as erro:
         return DiagnosticoPreliminar(
             paginas=0,
             paginas_amostradas=0,
