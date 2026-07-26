@@ -47,21 +47,33 @@ def corrigir_modelo() -> None:
     caminho.write_text(texto, encoding="utf-8")
 
 
-def corrigir_teste_interface() -> None:
-    caminho = Path("applications/test_interface_qualificacao.py")
-    texto = caminho.read_text(encoding="utf-8")
-    texto = texto.replace("from django.db import connections\n", "")
-    texto = re.sub(
+def corrigir_testes_resposta() -> None:
+    caminho_interface = Path("applications/test_interface_qualificacao.py")
+    texto_interface = caminho_interface.read_text(encoding="utf-8")
+    texto_interface = texto_interface.replace("from django.db import connections\n", "")
+    texto_interface = re.sub(
         r"class TestesInterfaceQualificacao\(TestCase\):\n"
         r"    @classmethod\n"
         r"    def setUpClass\(cls\):\n"
         r"        connections\.close_all\(\)\n"
         r"        super\(\)\.setUpClass\(\)\n\n",
         "class TestesInterfaceQualificacao(TestCase):\n",
-        texto,
+        texto_interface,
         count=1,
     )
-    caminho.write_text(texto, encoding="utf-8")
+    texto_interface = texto_interface.replace(
+        "        download.close()\n",
+        "        download.file_to_stream.close()\n",
+    )
+    caminho_interface.write_text(texto_interface, encoding="utf-8")
+
+    caminho_pdf = Path("applications/test_pdf_iframe.py")
+    texto_pdf = caminho_pdf.read_text(encoding="utf-8")
+    texto_pdf = texto_pdf.replace(
+        "                resposta.close()\n",
+        "                resposta.file_to_stream.close()\n",
+    )
+    caminho_pdf.write_text(texto_pdf, encoding="utf-8")
 
 
 def reescrever_testes_portabilidade() -> None:
@@ -158,6 +170,6 @@ class TestesPortabilidadeArquivos(TestCase):
 
 if __name__ == "__main__":
     corrigir_modelo()
-    corrigir_teste_interface()
+    corrigir_testes_resposta()
     reescrever_testes_portabilidade()
     Path(".github/workflows/aplicar-correcoes-portabilidade.yml").unlink(missing_ok=True)
