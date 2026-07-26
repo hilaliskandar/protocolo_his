@@ -1,0 +1,93 @@
+name: Internalizar fechamento de FieldFile
+
+on:
+  push:
+    branches:
+      - fix/portabilidade-windows-postgresql-0.3.6
+    paths:
+      - .github/workflows/internalizar-fechamento-fieldfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  corrigir:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter codigo
+        uses: actions/checkout@v4
+        with:
+          ref: fix/portabilidade-windows-postgresql-0.3.6
+
+      - name: Internalizar correcao no modelo
+        shell: python
+        run: |
+          from pathlib import Path
+
+          caminho_modelo = Path("applications/models.py")
+          texto = caminho_modelo.read_text(encoding="utf-8")
+          anterior = '''    def _calcular_sha256(self) -> str:
+                  resumo = sha256()
+                  arquivo = self.arquivo.file
+                  posicao_original = arquivo.tell() if arquivo.seekable() else None
+                  arquivo.seek(0)
+          
+                  if hasattr(arquivo, "chunks"):
+                      for bloco in arquivo.chunks():
+                          resumo.update(bloco)
+                  else:
+                      while bloco := arquivo.read(1024 * 1024):
+                          resumo.update(bloco)
+          
+                  if posicao_original is not None:
+                      arquivo.seek(posicao_original)
+                  return resumo.hexdigest()
+          '''
+          anterior = "\n".join(linha[10:] if linha.startswith("          ") else linha for linha in anterior.splitlines()) + "\n"
+          novo = '''    def _calcular_sha256(self) -> str:
+                  resumo = sha256()
+                  estava_fechado = self.arquivo.closed
+                  arquivo = self.arquivo.file
+          
+                  try:
+                      posicao_original = arquivo.tell() if arquivo.seekable() else None
+                      arquivo.seek(0)
+          
+                      if hasattr(arquivo, "chunks"):
+                          for bloco in arquivo.chunks():
+                              resumo.update(bloco)
+                      else:
+                          while bloco := arquivo.read(1024 * 1024):
+                              resumo.update(bloco)
+          
+                      if posicao_original is not None:
+                          arquivo.seek(posicao_original)
+          
+                      return resumo.hexdigest()
+                  finally:
+                      if estava_fechado:
+                          self.arquivo.close()
+          '''
+          novo = "\n".join(linha[10:] if linha.startswith("          ") else linha for linha in novo.splitlines()) + "\n"
+          if anterior not in texto:
+              raise SystemExit("Bloco esperado de _calcular_sha256 nao foi localizado.")
+          caminho_modelo.write_text(texto.replace(anterior, novo, 1), encoding="utf-8")
+
+          Path("applications/apps.py").write_text(
+              'from django.apps import AppConfig\n\n\n'
+              'class ApplicationsConfig(AppConfig):\n'
+              '    default_auto_field = "django.db.models.BigAutoField"\n'
+              '    name = "applications"\n'
+              '    verbose_name = "Aplicações do Protocolo HIS"\n',
+              encoding="utf-8",
+          )
+          Path("applications/compatibilidade_arquivos.py").unlink()
+          Path(".github/workflows/internalizar-fechamento-fieldfile.yml").unlink()
+
+      - name: Registrar correcao
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "fix: internalizar fechamento de arquivos no modelo"
+          git push
