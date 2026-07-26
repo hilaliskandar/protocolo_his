@@ -1,0 +1,48 @@
+name: Remover job temporário do FieldFile
+
+on:
+  push:
+    branches:
+      - fix/portabilidade-windows-postgresql-0.3.6
+    paths:
+      - .github/workflows/remover-job-temporario-fieldfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+        with:
+          ref: fix/portabilidade-windows-postgresql-0.3.6
+
+      - name: Remover job temporário
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          caminho = Path(".github/workflows/ci.yml")
+          texto = caminho.read_text(encoding="utf-8")
+          inicio_marcador = "  # BEGIN TEMPORARY FIELD FILE FIX\n"
+          fim_marcador = "  # END TEMPORARY FIELD FILE FIX\n"
+          inicio = texto.index(inicio_marcador)
+          fim = texto.index(fim_marcador, inicio) + len(fim_marcador)
+          caminho.write_text(texto[:inicio] + texto[fim:], encoding="utf-8")
+          Path(".github/workflows/remover-job-temporario-fieldfile.yml").unlink()
+          PY
+
+      - name: Validar YAML básico
+        run: |
+          ! grep -q "TEMPORARY FIELD FILE FIX" .github/workflows/ci.yml
+          ! grep -q "internalizar-fechamento-fieldfile" .github/workflows/ci.yml
+
+      - name: Registrar limpeza
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "chore: remover job temporário do hotfix"
+          git push origin HEAD:fix/portabilidade-windows-postgresql-0.3.6
