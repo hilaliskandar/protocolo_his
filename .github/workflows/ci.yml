@@ -66,22 +66,7 @@ jobs:
         run: python -m pip install -e ".[dev]"
 
       - name: Executar Ruff
-        run: |
-          mkdir -p artifacts
-          set +e
-          python -m ruff check . --output-format=json > artifacts/ruff-hotfix.json
-          status=$?
-          python -m ruff check . || true
-          exit $status
-
-      - name: Publicar diagnóstico Ruff
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ruff-hotfix-${{ github.run_id }}
-          path: artifacts/ruff-hotfix.json
-          if-no-files-found: warn
-          retention-days: 14
+        run: python -m ruff check .
 
       - name: Verificar Django
         run: python manage.py check
@@ -90,7 +75,19 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
 
       - name: Testar portabilidade e interface
-        run: python manage.py test applications.test_portabilidade_arquivos applications.test_interface_qualificacao applications.test_pdf_iframe --verbosity 2
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          python manage.py test applications.test_portabilidade_arquivos applications.test_interface_qualificacao applications.test_pdf_iframe --verbosity 2 2>&1 | tee artifacts/testes-direcionados.log
+
+      - name: Publicar testes direcionados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testes-direcionados-${{ github.run_id }}
+          path: artifacts/testes-direcionados.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Testar suíte PostgreSQL completa
         run: python manage.py test --verbosity 2
