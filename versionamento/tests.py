@@ -9,7 +9,13 @@ from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from applications.models import AplicacaoMunicipal, DocumentoNormativo, Municipio, TipoNormativo, VersaoDocumento
+from applications.models import (
+    AplicacaoMunicipal,
+    DocumentoNormativo,
+    Municipio,
+    TipoNormativo,
+    VersaoDocumento,
+)
 from versionamento.models import ClassificacaoVersao, RelacaoVersoes
 
 
