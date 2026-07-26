@@ -49,4 +49,6 @@ class TesteExibicaoPdfNoLeitor(TestCase):
                 self.assertEqual(resposta["X-Frame-Options"], "SAMEORIGIN")
                 self.assertTrue(resposta["Content-Disposition"].startswith("inline;"))
             finally:
-                resposta.close()
+                for fechar in resposta._resource_closers:
+                    fechar()
+                resposta._resource_closers.clear()
