@@ -4,6 +4,7 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from django.utils import timezone
 
 from applications.models import VersaoDocumento
@@ -22,10 +23,18 @@ class Command(BaseCommand):
         parser.add_argument("--referencia-atualizacao", default="")
         parser.add_argument("--justificativa", required=True)
         parser.add_argument("--fonte", default="")
-        parser.add_argument("--usuario", required=True, help="Nome de usuário responsável pela confirmação.")
+        parser.add_argument(
+            "--usuario",
+            required=True,
+            help="Nome de usuário responsável pela confirmação.",
+        )
         parser.add_argument("--confirmar", action="store_true")
 
+    @transaction.atomic
     def handle(self, *args, **opcoes) -> None:
+        if opcoes["origem"] is not None and not opcoes["tipo_relacao"]:
+            raise CommandError("--tipo-relacao é obrigatório quando --origem é informado.")
+
         try:
             destino = VersaoDocumento.objects.select_related("documento__aplicacao").get(
                 pk=opcoes["destino"]
@@ -39,32 +48,27 @@ class Command(BaseCommand):
         except usuario_model.DoesNotExist as erro:
             raise CommandError("Usuário responsável não encontrado.") from erro
 
-        estado_classificacao = (
+        momento = timezone.now() if opcoes["confirmar"] else None
+        classificacao, _ = ClassificacaoVersao.objects.get_or_create(
+            versao_documento=destino
+        )
+        classificacao.natureza = opcoes["natureza"]
+        classificacao.data_referencia_normativa = opcoes["data_referencia"]
+        classificacao.referencia_atualizacao = opcoes["referencia_atualizacao"]
+        classificacao.estado = (
             ClassificacaoVersao.Estado.CONFIRMADA
             if opcoes["confirmar"]
             else ClassificacaoVersao.Estado.PENDENTE
         )
-        momento = timezone.now() if opcoes["confirmar"] else None
-        classificacao, _ = ClassificacaoVersao.objects.update_or_create(
-            versao_documento=destino,
-            defaults={
-                "natureza": opcoes["natureza"],
-                "data_referencia_normativa": opcoes["data_referencia"],
-                "referencia_atualizacao": opcoes["referencia_atualizacao"],
-                "estado": estado_classificacao,
-                "justificativa": opcoes["justificativa"],
-                "fonte": opcoes["fonte"],
-                "confirmado_por": usuario if opcoes["confirmar"] else None,
-                "confirmado_em": momento,
-            },
-        )
+        classificacao.justificativa = opcoes["justificativa"]
+        classificacao.fonte = opcoes["fonte"]
+        classificacao.confirmado_por = usuario if opcoes["confirmar"] else None
+        classificacao.confirmado_em = momento
         classificacao.full_clean()
         classificacao.save()
 
         relacao = None
         if opcoes["origem"] is not None:
-            if not opcoes["tipo_relacao"]:
-                raise CommandError("--tipo-relacao é obrigatório quando --origem é informado.")
             try:
                 origem = VersaoDocumento.objects.select_related("documento__aplicacao").get(
                     pk=opcoes["origem"]
@@ -72,23 +76,21 @@ class Command(BaseCommand):
             except VersaoDocumento.DoesNotExist as erro:
                 raise CommandError("Versão de origem não encontrada.") from erro
 
-            estado_relacao = (
+            relacao, _ = RelacaoVersoes.objects.get_or_create(
+                versao_origem=origem,
+                versao_destino=destino,
+                tipo=opcoes["tipo_relacao"],
+                defaults={"justificativa": opcoes["justificativa"]},
+            )
+            relacao.estado = (
                 RelacaoVersoes.Estado.CONFIRMADA
                 if opcoes["confirmar"]
                 else RelacaoVersoes.Estado.PENDENTE
             )
-            relacao, _ = RelacaoVersoes.objects.update_or_create(
-                versao_origem=origem,
-                versao_destino=destino,
-                tipo=opcoes["tipo_relacao"],
-                defaults={
-                    "estado": estado_relacao,
-                    "justificativa": opcoes["justificativa"],
-                    "fonte": opcoes["fonte"],
-                    "validado_por": usuario if opcoes["confirmar"] else None,
-                    "validado_em": momento,
-                },
-            )
+            relacao.justificativa = opcoes["justificativa"]
+            relacao.fonte = opcoes["fonte"]
+            relacao.validado_por = usuario if opcoes["confirmar"] else None
+            relacao.validado_em = momento
             relacao.full_clean()
             relacao.save()
 
