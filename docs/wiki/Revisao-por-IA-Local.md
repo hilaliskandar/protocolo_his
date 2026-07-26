@@ -29,34 +29,59 @@ flowchart TD
     J --> K
 ```
 
-## Execução
+## Configuração padrão
 
-O Ollama deve estar ativo e o modelo deve estar disponível localmente.
+O projeto lê do `.env` o endereço do Ollama, o modelo e os thresholds da revisão:
+
+```dotenv
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_REVIEW_MAX_CHARS=8000
+OLLAMA_REVIEW_MIN_CONFIDENCE=0.90
+OLLAMA_REVIEW_MAX_CHANGE=0.20
+OLLAMA_REVIEW_MAX_REMOVAL=0.08
+```
+
+O `--modelo` e os demais parâmetros continuam disponíveis na linha de comando somente para sobrescritas pontuais. A configuração efetivamente usada é persistida no processamento, garantindo reprodutibilidade e idempotência.
+
+## Preparação do Ollama
+
+O serviço deve estar ativo e o modelo configurado precisa estar disponível localmente:
 
 ```powershell
 ollama list
+ollama pull qwen3:8b
 ollama serve
 ```
 
-Revisão de uma versão:
+Em instalações nas quais o aplicativo Ollama já inicia como serviço, `ollama serve` não deve ser executado novamente.
+
+## Execução
+
+Com a configuração padrão no `.env`, a revisão de uma versão não exige informar o modelo:
 
 ```powershell
-python manage.py revisar_markdown_ia --versao 1 --modelo qwen3:8b
+python manage.py revisar_markdown_ia --versao 1
 ```
 
 Por documento ou aplicação:
 
 ```powershell
-python manage.py revisar_markdown_ia --documento 1 --modelo qwen3:8b
-python manage.py revisar_markdown_ia --aplicacao 1 --modelo qwen3:8b
+python manage.py revisar_markdown_ia --documento 1
+python manage.py revisar_markdown_ia --aplicacao 1
 ```
 
-Parâmetros de controle:
+Sobrescrita pontual do modelo:
+
+```powershell
+python manage.py revisar_markdown_ia --versao 1 --modelo OUTRO_MODELO_LOCAL
+```
+
+Sobrescrita dos gates:
 
 ```powershell
 python manage.py revisar_markdown_ia `
   --versao 1 `
-  --modelo qwen3:8b `
   --max-caracteres 8000 `
   --confianca-minima 0.90 `
   --alteracao-maxima 0.20 `
