@@ -29,6 +29,30 @@ VERSAO_CODIGO_CONVERSOR = "de39b9f1f86bd089dad9fcc5d95663a2b0600710"
 class ErroQualificacaoDocumento(RuntimeError):
     """Erro controlado durante a qualificação de uma versão documental."""
 
+    def __init__(
+        self,
+        mensagem: str,
+        *,
+        categoria: str = "tecnico",
+        codigo: str = "qualificacao_falhou",
+        acao: str = "Revise o arquivo e tente novamente.",
+        detalhes: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(mensagem)
+        self.categoria = categoria
+        self.codigo = codigo
+        self.acao = acao
+        self.detalhes = detalhes or {}
+
+    def para_registro(self) -> dict[str, Any]:
+        return {
+            "categoria": self.categoria,
+            "codigo": self.codigo,
+            "mensagem": str(self),
+            "acao": self.acao,
+            "detalhes": self.detalhes,
+        }
+
 
 def _serializar(valor: Any) -> Any:
     if is_dataclass(valor):
@@ -177,17 +201,65 @@ def _validar_diagnostico(diagnostico: Any, hash_esperado: str) -> None:
     paginas = list(diagnostico.pages)
     if diagnostico.sha256 != hash_esperado:
         raise ErroQualificacaoDocumento(
-            "O hash calculado pelo motor de diagnóstico não corresponde ao arquivo ingerido."
+            "O hash calculado pelo motor de diagnóstico não corresponde ao arquivo ingerido.",
+            categoria="governanca",
+            codigo="diagnostico_hash_divergente",
+            acao="Reingira o documento para garantir integridade entre origem e diagnóstico.",
         )
     if diagnostico.page_count <= 0:
-        raise ErroQualificacaoDocumento("O PDF não possui páginas diagnosticáveis.")
+        raise ErroQualificacaoDocumento(
+            "O PDF não possui páginas diagnosticáveis.",
+            categoria="conteudo",
+            codigo="pdf_sem_paginas_diagnosticaveis",
+            acao="Substitua por um PDF íntegro com páginas válidas.",
+        )
     if len(paginas) != diagnostico.page_count:
         raise ErroQualificacaoDocumento(
-            "O diagnóstico não abrange todas as páginas do PDF."
+            "O diagnóstico não abrange todas as páginas do PDF.",
+            categoria="conteudo",
+            codigo="diagnostico_paginas_incompleto",
+            acao="Revise o PDF para páginas corrompidas e execute nova qualificação.",
         )
     numeros = [pagina.page_number for pagina in paginas]
     if numeros != list(range(1, diagnostico.page_count + 1)):
-        raise ErroQualificacaoDocumento("A numeração das páginas diagnosticadas é inconsistente.")
+        raise ErroQualificacaoDocumento(
+            "A numeração das páginas diagnosticadas é inconsistente.",
+            categoria="conteudo",
+            codigo="diagnostico_numeracao_inconsistente",
+            acao="Reimporte o arquivo ou encaminhe para revisão manual.",
+        )
+
+
+def _validar_arquivo_fonte(versao: VersaoDocumento) -> None:
+    hash_atual, tamanho_atual, cabecalho = _calcular_hash_arquivo(versao)
+    if hash_atual != versao.sha256:
+        raise ErroQualificacaoDocumento(
+            "O hash atual do arquivo não corresponde ao hash registrado na ingestão.",
+            categoria="governanca",
+            codigo="arquivo_hash_divergente",
+            acao="Interrompa o fluxo e reingira o PDF original para restabelecer a cadeia de custódia.",
+        )
+    if tamanho_atual != versao.tamanho_bytes:
+        raise ErroQualificacaoDocumento(
+            "O tamanho atual do arquivo não corresponde ao tamanho registrado na ingestão.",
+            categoria="governanca",
+            codigo="arquivo_tamanho_divergente",
+            acao="Reingira o arquivo e valide se houve modificação fora do processo de ingestão.",
+        )
+    if tamanho_atual <= 0:
+        raise ErroQualificacaoDocumento(
+            "O arquivo está vazio e não pode ser qualificado.",
+            categoria="conteudo",
+            codigo="arquivo_vazio",
+            acao="Substitua o documento por um PDF não vazio.",
+        )
+    if not cabecalho.startswith(b"%PDF-"):
+        raise ErroQualificacaoDocumento(
+            "O arquivo não possui assinatura PDF válida.",
+            categoria="conteudo",
+            codigo="assinatura_pdf_invalida",
+            acao="Substitua o arquivo por um PDF válido antes de qualificar.",
+        )
 
 
 def qualificar_versao(
@@ -219,17 +291,7 @@ def qualificar_versao(
     inicio = monotonic()
 
     try:
-        hash_atual, tamanho_atual, cabecalho = _calcular_hash_arquivo(versao)
-        if hash_atual != versao.sha256:
-            raise ErroQualificacaoDocumento(
-                "O hash atual do arquivo não corresponde ao hash registrado na ingestão."
-            )
-        if tamanho_atual != versao.tamanho_bytes:
-            raise ErroQualificacaoDocumento(
-                "O tamanho atual do arquivo não corresponde ao tamanho registrado na ingestão."
-            )
-        if not cabecalho.startswith(b"%PDF-"):
-            raise ErroQualificacaoDocumento("O arquivo não possui assinatura PDF válida.")
+        _validar_arquivo_fonte(versao)
 
         motor = _carregar_motor()
         with _caminho_local(versao) as caminho:
@@ -282,8 +344,26 @@ def qualificar_versao(
             versao.documento.save(update_fields=["status", "atualizado_em"])
         return processamento
     except Exception as erro:
+        falha = erro
+        if not isinstance(falha, ErroQualificacaoDocumento):
+            if isinstance(erro, ValueError):
+                falha = ErroQualificacaoDocumento(
+                    "O PDF aparenta estar malformado para diagnóstico automatizado.",
+                    categoria="conteudo",
+                    codigo="pdf_malformado",
+                    acao="Substitua o arquivo por um PDF íntegro ou encaminhe para revisão manual.",
+                    detalhes={"erro_original": str(erro)},
+                )
+            else:
+                falha = ErroQualificacaoDocumento(
+                    str(erro),
+                    categoria="tecnico",
+                    codigo="falha_tecnica_inesperada",
+                    acao="Consulte os logs do conversor e tente novamente.",
+                )
         processamento.status = ProcessamentoDocumento.Status.FALHOU
-        processamento.mensagem_erro = str(erro)
+        processamento.metricas = {**(processamento.metricas or {}), "falha": falha.para_registro()}
+        processamento.mensagem_erro = str(falha)
         processamento.concluido_em = timezone.now()
         processamento.duracao_segundos = monotonic() - inicio
         processamento.rota_documento = ProcessamentoDocumento.RotaDocumento.MANUAL
@@ -292,4 +372,4 @@ def qualificar_versao(
         versao.documento.save(update_fields=["status", "atualizado_em"])
         if isinstance(erro, ErroQualificacaoDocumento):
             raise
-        raise ErroQualificacaoDocumento(str(erro)) from erro
+        raise falha from erro

@@ -185,6 +185,38 @@ class TestesQualificacaoDocumento(TestCase):
             self.documento.refresh_from_db()
             self.assertEqual(self.documento.status, DocumentoNormativo.Status.QUARENTENA)
 
+    def test_tamanho_divergente_na_qualificacao_gera_falha_de_governanca(self):
+        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
+            versao = self._criar_versao()
+            versao.tamanho_bytes += 1
+            versao.save(update_fields=["tamanho_bytes"])
+
+            with self.assertRaises(ErroQualificacaoDocumento):
+                qualificar_versao(versao)
+
+            processamento = versao.processamentos.get()
+            self.assertEqual(processamento.metricas["falha"]["categoria"], "governanca")
+            self.assertEqual(processamento.metricas["falha"]["codigo"], "arquivo_tamanho_divergente")
+
+    def test_pdf_malformado_e_classificado_como_falha_de_conteudo(self):
+        def motor_quebra(_caminho: Path, min_native_chars: int = 40):
+            del min_native_chars
+            raise ValueError("stream xref inválido")
+
+        with (
+            TemporaryDirectory() as diretorio,
+            self.settings(MEDIA_ROOT=Path(diretorio)),
+            patch("applications.qualificacao._carregar_motor", return_value=motor_quebra),
+        ):
+            versao = self._criar_versao()
+
+            with self.assertRaises(ErroQualificacaoDocumento):
+                qualificar_versao(versao)
+
+            processamento = versao.processamentos.get()
+            self.assertEqual(processamento.metricas["falha"]["categoria"], "conteudo")
+            self.assertEqual(processamento.metricas["falha"]["codigo"], "pdf_malformado")
+
     def test_comando_qualifica_versao_especifica(self):
         with (
             TemporaryDirectory() as diretorio,
