@@ -770,3 +770,116 @@ class ReleaseCorpusDocumento(models.Model):
 
     def __str__(self) -> str:
         return f"{self.release} — {self.versao_documento}"
+
+
+class LeituraIntegral(models.Model):
+    aplicacao = models.ForeignKey(
+        AplicacaoMunicipal,
+        on_delete=models.PROTECT,
+        related_name="leituras_integrais",
+    )
+    artigo = models.ForeignKey(
+        ArtigoNormativo,
+        on_delete=models.PROTECT,
+        related_name="leituras",
+    )
+    release_corpus = models.ForeignKey(
+        ReleaseCorpus,
+        on_delete=models.PROTECT,
+        related_name="leituras_integrais",
+    )
+    resumo = models.TextField(blank=True)
+    conceitos_identificados = models.JSONField(default=list, blank=True)
+    territorios_mencionados = models.JSONField(default=list, blank=True)
+    remissoes = models.JSONField(default=list, blank=True)
+    cobertura_tematica = models.JSONField(default=list, blank=True)
+    lido_por_modelo = models.CharField(max_length=120, blank=True)
+    versao_prompt = models.CharField(max_length=40, blank=True)
+    confianca = models.FloatField(blank=True, null=True)
+    revisado = models.BooleanField(default=False)
+    revisado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="leituras_integrais_revisadas",
+        blank=True,
+        null=True,
+    )
+    revisado_em = models.DateTimeField(blank=True, null=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("aplicacao", "artigo", "release_corpus")]
+        ordering = ["aplicacao", "artigo"]
+        verbose_name = "leitura integral"
+        verbose_name_plural = "leituras integrais"
+
+    def __str__(self) -> str:
+        return f"{self.aplicacao} — {self.artigo}"
+
+
+class LivroCobertura(models.Model):
+    release_corpus = models.OneToOneField(
+        ReleaseCorpus,
+        on_delete=models.PROTECT,
+        related_name="livro_cobertura",
+    )
+    total_artigos = models.PositiveIntegerField(default=0)
+    total_lidos = models.PositiveIntegerField(default=0)
+    total_revisados = models.PositiveIntegerField(default=0)
+    cobertura_percentual = models.FloatField(default=0.0)
+    lacunas = models.JSONField(default=list, blank=True)
+    alertas = models.JSONField(default=list, blank=True)
+    gerado_em = models.DateTimeField(blank=True, null=True)
+    sha256_estado = models.CharField(max_length=64, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-criado_em"]
+        verbose_name = "livro de cobertura"
+        verbose_name_plural = "livros de cobertura"
+
+    def __str__(self) -> str:
+        return f"Livro de cobertura — {self.release_corpus}"
+
+
+class ContextoNormativoC0(models.Model):
+    aplicacao = models.OneToOneField(
+        AplicacaoMunicipal,
+        on_delete=models.PROTECT,
+        related_name="contexto_c0",
+    )
+    release_corpus = models.ForeignKey(
+        ReleaseCorpus,
+        on_delete=models.PROTECT,
+        related_name="contextos_c0",
+    )
+    estrutura_diploma = models.JSONField(default=dict, blank=True)
+    conceitos_centrais = models.JSONField(default=list, blank=True)
+    territorios = models.JSONField(default=list, blank=True)
+    remissoes_cruzadas = models.JSONField(default=list, blank=True)
+    temas_cobertos = models.JSONField(default=list, blank=True)
+    cobertura_integral = models.BooleanField(default=False)
+    gerado_por_modelo = models.CharField(max_length=120, blank=True)
+    versao_prompt = models.CharField(max_length=40, blank=True)
+    revisado = models.BooleanField(default=False)
+    revisado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="contextos_normativos_c0_revisados",
+        blank=True,
+        null=True,
+    )
+    revisado_em = models.DateTimeField(blank=True, null=True)
+    observacoes = models.TextField(blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-criado_em"]
+        verbose_name = "contexto normativo C0"
+        verbose_name_plural = "contextos normativos C0"
+
+    def __str__(self) -> str:
+        return f"Contexto C0 — {self.aplicacao}"

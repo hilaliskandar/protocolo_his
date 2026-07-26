@@ -6,9 +6,12 @@ from .models import (
     AplicacaoMunicipal,
     ArtefatoProcessado,
     ArtigoNormativo,
+    ContextoNormativoC0,
     AtoNormativo,
     DiagnosticoPagina,
     DocumentoNormativo,
+    LeituraIntegral,
+    LivroCobertura,
     Municipio,
     OcorrenciaDocumental,
     ProcessamentoDocumento,
@@ -414,3 +417,70 @@ class AdministracaoReleaseCorpus(admin.ModelAdmin):
     autocomplete_fields = ("aplicacao", "liberado_por")
     readonly_fields = ("criado_em", "atualizado_em")
     inlines = (ReleaseCorpusDocumentoEmLinha,)
+
+
+@admin.register(LeituraIntegral)
+class AdministracaoLeituraIntegral(admin.ModelAdmin):
+    list_display = (
+        "aplicacao",
+        "artigo",
+        "release_corpus",
+        "revisado",
+        "confianca",
+        "revisado_em",
+        "atualizado_em",
+    )
+    list_filter = ("revisado", "release_corpus__estado", "lido_por_modelo")
+    search_fields = (
+        "aplicacao__titulo",
+        "aplicacao__municipio__nome",
+        "artigo__identificador",
+        "artigo__rotulo",
+        "release_corpus__versao",
+        "resumo",
+    )
+    autocomplete_fields = ("aplicacao", "artigo", "release_corpus", "revisado_por")
+    readonly_fields = ("criado_em", "atualizado_em", "revisado_em")
+
+
+@admin.register(LivroCobertura)
+class AdministracaoLivroCobertura(admin.ModelAdmin):
+    list_display = (
+        "release_corpus",
+        "total_artigos",
+        "total_lidos",
+        "total_revisados",
+        "cobertura_percentual",
+        "gerado_em",
+        "atualizado_em",
+    )
+    list_filter = ("release_corpus__estado", "gerado_em")
+    search_fields = (
+        "release_corpus__aplicacao__titulo",
+        "release_corpus__aplicacao__municipio__nome",
+        "release_corpus__versao",
+        "sha256_estado",
+    )
+    autocomplete_fields = ("release_corpus",)
+    readonly_fields = ("gerado_em", "criado_em", "atualizado_em")
+
+
+@admin.register(ContextoNormativoC0)
+class AdministracaoContextoNormativoC0(admin.ModelAdmin):
+    list_display = (
+        "aplicacao",
+        "release_corpus",
+        "cobertura_integral",
+        "revisado",
+        "revisado_em",
+        "atualizado_em",
+    )
+    list_filter = ("cobertura_integral", "revisado", "release_corpus__estado")
+    search_fields = (
+        "aplicacao__titulo",
+        "aplicacao__municipio__nome",
+        "release_corpus__versao",
+        "observacoes",
+    )
+    autocomplete_fields = ("aplicacao", "release_corpus", "revisado_por")
+    readonly_fields = ("criado_em", "atualizado_em", "revisado_em")
