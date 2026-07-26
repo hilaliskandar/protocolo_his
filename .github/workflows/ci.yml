@@ -74,6 +74,7 @@ jobs:
         run: |
           ! grep -R "django.db.backends.sqlite3" --exclude-dir=.git .
           ! grep -R "import sqlite3" --exclude-dir=.git .
+          ! grep -R "config.settings_test" --exclude-dir=.git .
 
       - name: Executar Ruff
         run: |
@@ -85,10 +86,10 @@ jobs:
           exit $status
 
       - name: Executar verificações do Django
-        run: python manage.py check --settings=config.settings_test
+        run: python manage.py check
 
       - name: Verificar migrações pendentes
-        run: python manage.py makemigrations --check --dry-run --settings=config.settings_test
+        run: python manage.py makemigrations --check --dry-run
 
       - name: Executar testes
         run: |
