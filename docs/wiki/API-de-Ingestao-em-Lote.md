@@ -77,3 +77,5 @@ Somente itens `pronto` são materializados. Itens ambíguos, duplicados, ignorad
 ## Canário RM Jundiaí
 
 O lote de 35 PDFs da RM Jundiaí é o canário da funcionalidade. Ele não integra o repositório e deve ser executado localmente após a atualização do banco. A expectativa é que atos com metadados completos sejam marcados como prontos, enquanto PLHIS, páginas institucionais, Diário Oficial, fragmentos e anexos permaneçam para adjudicação.
+
+No CI, o contrato é exercitado por um ZIP sintético pequeno; o canário real permanece reservado ao teste local de aceitação para evitar exposição ou duplicação do corpus.
