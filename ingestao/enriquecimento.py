@@ -5,17 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
-from pypdf.errors import PdfReadError, PdfStreamError
 
 RE_ATO_TEXTO = re.compile(
     r"\b(?:lei\s+complementar|lei\s+ordin[aá]ria|lei|lc)\s*"
-    r"(?:n[º°o.]*)?\s*([0-9][0-9.\-/]*)"
-    r"(?:\s*,?\s*(?:de|/|-)\s*(?:\d{1,2}\s+de\s+\w+\s+de\s+)?)?"
-    r"(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})?",
+    r"(?:n[º°o.]*)?\s*"
+    r"(?P<numero>[0-9]+(?:\.[0-9]+)*)"
+    r"(?:\s*[/\-]\s*(?P<ano_abreviado>18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2}))?",
     re.IGNORECASE,
 )
 RE_ANO = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})\b")
-ERROS_PDF = (PdfReadError, PdfStreamError, OSError, KeyError, TypeError, ValueError, AttributeError)
 
 
 def normalizar_numero(valor: str) -> str:
@@ -39,8 +37,9 @@ def _metadados_do_texto(texto: str) -> tuple[str, int | None]:
     achado = RE_ATO_TEXTO.search(texto)
     if not achado:
         return "", None
-    numero = achado.group(1).strip(" .-/")
-    ano = int(achado.group(2)) if achado.group(2) else None
+    numero = achado.group("numero").strip(" .-/")
+    ano_abreviado = achado.group("ano_abreviado")
+    ano = int(ano_abreviado) if ano_abreviado else None
     if ano is None:
         trecho = texto[achado.end() : achado.end() + 180]
         ano_achado = RE_ANO.search(trecho)
@@ -58,7 +57,7 @@ def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> Diagnostic
         for pagina in leitor.pages[:paginas_amostradas]:
             try:
                 textos.append(pagina.extract_text() or "")
-            except ERROS_PDF as erro:
+            except Exception as erro:  # noqa: BLE001
                 textos.append("")
                 avisos.append(f"extração preliminar falhou em uma página: {erro}")
         texto = "\n".join(textos)
@@ -83,7 +82,7 @@ def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> Diagnostic
             ano_texto=ano,
             avisos=avisos,
         )
-    except ERROS_PDF as erro:
+    except Exception as erro:  # noqa: BLE001
         return DiagnosticoPreliminar(
             paginas=0,
             paginas_amostradas=0,
