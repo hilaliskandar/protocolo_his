@@ -135,7 +135,9 @@ def inspecionar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
 @require_http_methods(["GET"])
 def listar_itens(request: HttpRequest, lote_id) -> JsonResponse:
     lote = get_object_or_404(ImportacaoLote, pk=lote_id)
-    return JsonResponse({"lote": str(lote.pk), "itens": [_item_json(item) for item in lote.itens.all()]})
+    return JsonResponse(
+        {"lote": str(lote.pk), "itens": [_item_json(item) for item in lote.itens.all()]}
+    )
 
 
 @csrf_exempt
@@ -163,15 +165,26 @@ def atualizar_item(request: HttpRequest, item_id: int) -> JsonResponse:
     desconhecidos = set(dados) - campos
     if desconhecidos:
         return JsonResponse({"erro": f"campos não permitidos: {sorted(desconhecidos)}"}, status=400)
-    if "tipo_normativo_codigo" in dados and dados["tipo_normativo_codigo"]:
-        if not TipoNormativo.objects.filter(codigo=dados["tipo_normativo_codigo"], ativo=True).exists():
-            return JsonResponse({"erro": "tipo_normativo_codigo inexistente ou inativo"}, status=400)
+    tipo_codigo = dados.get("tipo_normativo_codigo")
+    if tipo_codigo and not TipoNormativo.objects.filter(codigo=tipo_codigo, ativo=True).exists():
+        return JsonResponse({"erro": "tipo_normativo_codigo inexistente ou inativo"}, status=400)
     for campo, valor in dados.items():
         setattr(item, campo, valor)
     if item.estado == ItemImportacaoLote.Estado.PRONTO:
-        obrigatorios = [item.municipio_candidato, item.uf, item.tipo_normativo_codigo, item.numero_candidato, item.ano_candidato, item.titulo_candidato]
-        if item.natureza != ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL or not all(obrigatorios):
-            return JsonResponse({"erro": "item pronto exige metadados completos de ato municipal"}, status=400)
+        obrigatorios = [
+            item.municipio_candidato,
+            item.uf,
+            item.tipo_normativo_codigo,
+            item.numero_candidato,
+            item.ano_candidato,
+            item.titulo_candidato,
+        ]
+        if item.natureza != ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL or not all(
+            obrigatorios
+        ):
+            return JsonResponse(
+                {"erro": "item pronto exige metadados completos de ato municipal"}, status=400
+            )
     try:
         item.full_clean()
         item.save()
