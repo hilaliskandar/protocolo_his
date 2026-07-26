@@ -1,0 +1,246 @@
+name: Aplicar hotfix definitivo do FieldFile
+
+on:
+  push:
+    branches:
+      - fix/portabilidade-windows-postgresql-0.3.6
+    paths:
+      - .github/workflows/aplicar-hotfix-fieldfile.yml
+
+permissions:
+  contents: write
+
+jobs:
+  aplicar-e-testar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: protocolo_his
+          POSTGRES_USER: protocolo_his
+          POSTGRES_PASSWORD: protocolo_his
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U protocolo_his -d protocolo_his"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PYTHON_VERSION: "3.12"
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      DJANGO_DEBUG: "false"
+      PROTOCOL_DATA_ROOT: ${{ github.workspace }}/.ci-data
+      POSTGRES_DB: protocolo_his
+      POSTGRES_USER: protocolo_his
+      POSTGRES_PASSWORD: protocolo_his
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+
+    steps:
+      - name: Obter branch do hotfix
+        uses: actions/checkout@v4
+        with:
+          ref: fix/portabilidade-windows-postgresql-0.3.6
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Aplicar correções definitivas
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          caminho_modelo = Path("applications/models.py")
+          texto_modelo = caminho_modelo.read_text(encoding="utf-8")
+          padrao_metodo = re.compile(
+              r"    def _calcular_sha256\(self\) -> str:\n.*?(?=\n    def _localizar_duplicado)",
+              re.DOTALL,
+          )
+          linhas_metodo = [
+              "    def _calcular_sha256(self) -> str:",
+              "        resumo = sha256()",
+              "        estava_fechado = self.arquivo.closed",
+              "        arquivo = None",
+              "        posicao_original = None",
+              "",
+              "        try:",
+              "            if estava_fechado:",
+              "                self.arquivo.open(\"rb\")",
+              "",
+              "            arquivo = self.arquivo.file",
+              "            posicao_original = arquivo.tell() if arquivo.seekable() else None",
+              "            if arquivo.seekable():",
+              "                arquivo.seek(0)",
+              "",
+              "            if hasattr(arquivo, \"chunks\"):",
+              "                for bloco in arquivo.chunks():",
+              "                    resumo.update(bloco)",
+              "            else:",
+              "                while bloco := arquivo.read(1024 * 1024):",
+              "                    resumo.update(bloco)",
+              "",
+              "            return resumo.hexdigest()",
+              "        finally:",
+              "            if estava_fechado:",
+              "                self.arquivo.close()",
+              "            elif arquivo is not None and posicao_original is not None:",
+              "                arquivo.seek(posicao_original)",
+          ]
+          novo_metodo = "\n".join(linhas_metodo)
+          texto_modelo, quantidade = padrao_metodo.subn(novo_metodo, texto_modelo, count=1)
+          if quantidade != 1:
+              raise SystemExit(f"Método _calcular_sha256 substituído {quantidade} vezes; esperado: 1.")
+          caminho_modelo.write_text(texto_modelo, encoding="utf-8")
+
+          Path("applications/test_portabilidade_arquivos.py").write_text(
+              '''from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase
+
+from applications.models import (
+    AplicacaoMunicipal,
+    DocumentoNormativo,
+    Municipio,
+    TipoNormativo,
+    VersaoDocumento,
+)
+
+
+class TestesPortabilidadeArquivos(TestCase):
+    def setUp(self):
+        municipio = Municipio.objects.create(nome="Recife", uf="PE")
+        aplicacao = AplicacaoMunicipal.objects.create(
+            municipio=municipio,
+            titulo="Aplicação Recife",
+        )
+        self.documento = DocumentoNormativo.objects.create(
+            aplicacao=aplicacao,
+            tipo=TipoNormativo.objects.get(codigo="lei_complementar"),
+            numero="2",
+            ano=2021,
+            titulo="Plano Diretor",
+        )
+
+    def _criar_versao(self):
+        criada = VersaoDocumento.objects.create(
+            documento=self.documento,
+            arquivo=SimpleUploadedFile(
+                "hash-pendente.pdf",
+                b"%PDF-1.7\\nconteudo",
+                "application/pdf",
+            ),
+            mime_type="application/pdf",
+        )
+        return criada, VersaoDocumento.objects.get(pk=criada.pk)
+
+    def test_calculo_sha256_fecha_handle_aberto_internamente(self):
+        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
+            criada, versao = self._criar_versao()
+            try:
+                self.assertTrue(versao.arquivo.closed)
+                resumo = versao._calcular_sha256()
+
+                self.assertEqual(resumo, criada.sha256)
+                self.assertTrue(versao.arquivo.closed)
+            finally:
+                criada.arquivo.close()
+                versao.arquivo.close()
+
+    def test_calculo_sha256_pode_ser_executado_duas_vezes(self):
+        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
+            criada, versao = self._criar_versao()
+            try:
+                primeiro = versao._calcular_sha256()
+                segundo = versao._calcular_sha256()
+
+                self.assertEqual(primeiro, criada.sha256)
+                self.assertEqual(segundo, criada.sha256)
+                self.assertTrue(versao.arquivo.closed)
+            finally:
+                criada.arquivo.close()
+                versao.arquivo.close()
+
+    def test_calculo_sha256_preserva_handle_aberto_e_posicao(self):
+        with TemporaryDirectory() as diretorio, self.settings(MEDIA_ROOT=Path(diretorio)):
+            criada, versao = self._criar_versao()
+            try:
+                versao.arquivo.open("rb")
+                versao.arquivo.seek(5)
+
+                resumo = versao._calcular_sha256()
+
+                self.assertEqual(resumo, criada.sha256)
+                self.assertFalse(versao.arquivo.closed)
+                self.assertEqual(versao.arquivo.tell(), 5)
+            finally:
+                criada.arquivo.close()
+                versao.arquivo.close()
+''',
+              encoding="utf-8",
+          )
+
+          caminho_ci = Path(".github/workflows/ci.yml")
+          texto_ci = caminho_ci.read_text(encoding="utf-8")
+          padrao_temporario = re.compile(
+              r"  # BEGIN TEMPORARY FIELD FILE FIX\n.*?  # END TEMPORARY FIELD FILE FIX\n\n?",
+              re.DOTALL,
+          )
+          texto_ci, quantidade = padrao_temporario.subn("", texto_ci, count=1)
+          if quantidade not in {0, 1}:
+              raise SystemExit(f"Bloco temporário removido {quantidade} vezes.")
+          caminho_ci.write_text(texto_ci, encoding="utf-8")
+
+          for caminho in [
+              Path(".github/workflows/remover-job-temporario-fieldfile.yml"),
+              Path(".github/workflows/internalizar-fechamento-fieldfile.yml"),
+              Path(".github/workflows/corrigir-indentacao-fieldfile.yml"),
+              Path(".github/workflows/aplicar-hotfix-fieldfile.yml"),
+          ]:
+              caminho.unlink(missing_ok=True)
+          PY
+
+      - name: Instalar projeto e dependências
+        run: python -m pip install -e ".[dev,qualificacao,observabilidade-ia]"
+
+      - name: Validar sintaxe e qualidade
+        run: |
+          python -m py_compile applications/models.py applications/apps.py applications/test_portabilidade_arquivos.py
+          python -m ruff check applications/models.py applications/apps.py applications/test_portabilidade_arquivos.py applications/test_pdf_iframe.py applications/test_interface_qualificacao.py
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+
+      - name: Executar testes direcionados com PostgreSQL
+        run: |
+          python manage.py test \
+            applications.test_portabilidade_arquivos \
+            applications.test_pdf_iframe \
+            applications.test_interface_qualificacao \
+            --verbosity 2
+
+      - name: Registrar correção validada
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          git commit -m "fix: concluir portabilidade de arquivos no Windows"
+          git push origin HEAD:fix/portabilidade-windows-postgresql-0.3.6
+
+      - name: Executar suíte completa com PostgreSQL
+        run: python manage.py test --verbosity 2
+
+      - name: Executar suíte pytest
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings_test
+        run: python -m pytest -q
