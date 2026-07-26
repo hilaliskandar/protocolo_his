@@ -22,12 +22,21 @@ from applications.models import (
     VersaoDocumento,
 )
 
+from .enriquecimento import diagnosticar_pdf, normalizar_numero
 from .models import ImportacaoLote, ItemImportacaoLote
 
 RE_NUMERO_ANO = [
-    re.compile(r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(\d[\d.\-]*)[_\s/-]+(\d{4})", re.I),
+    re.compile(
+        r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(?:n[º°o.]?\s*)?"
+        r"(\d[\d.\-]*)[_\s/-]+(\d{4})",
+        re.I,
+    ),
     re.compile(r"(\d[\d.]*)[_\s/-]+(\d{4})"),
 ]
+RE_NUMERO_SEM_ANO = re.compile(
+    r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(?:n[º°o.]?\s*)?(\d[\d.\-]*)",
+    re.I,
+)
 PASTAS_GENERICAS = {
     "anexo",
     "anexos",
@@ -102,6 +111,8 @@ def _numero_ano(nome: str) -> tuple[str, int | None]:
             ano = int(achado.group(2))
             if 1800 <= ano <= 2200:
                 return numero, ano
+    if achado := RE_NUMERO_SEM_ANO.search(stem):
+        return achado.group(1).strip(" .-_"), None
     return "", None
 
 
@@ -117,10 +128,18 @@ def _classificar(caminho: str, uf: str) -> dict:
     numero, ano = _numero_ano(nome)
     confianca = 0.20
     avisos: list[str] = []
+    fontes: dict[str, str] = {}
     if municipio:
         confianca += 0.25
+        fontes["municipio_candidato"] = "estrutura_pastas"
     else:
         avisos.append("município não identificado pela estrutura de pastas")
+    if tipo:
+        fontes["tipo_normativo_codigo"] = "nome_arquivo"
+    if numero:
+        fontes["numero_candidato"] = "nome_arquivo"
+    if ano:
+        fontes["ano_candidato"] = "nome_arquivo"
     if natureza == ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL:
         confianca += 0.15
         if tipo:
@@ -146,12 +165,56 @@ def _classificar(caminho: str, uf: str) -> dict:
         "natureza": natureza,
         "tipo_normativo_codigo": tipo,
         "numero_candidato": numero,
+        "numero_normalizado": normalizar_numero(numero),
         "ano_candidato": ano,
         "titulo_candidato": _titulo(nome),
+        "fontes_metadados": fontes,
         "confianca": round(min(confianca, 1.0), 3),
         "avisos": avisos,
         "estado": ItemImportacaoLote.Estado.PRONTO if pronto else ItemImportacaoLote.Estado.REVISAO,
     }
+
+
+def _aplicar_diagnostico(dados: dict, caminho_temporario: str) -> None:
+    diagnostico = diagnosticar_pdf(caminho_temporario)
+    dados.update(
+        {
+            "paginas": diagnostico.paginas or None,
+            "paginas_amostradas": diagnostico.paginas_amostradas,
+            "caracteres_amostra": diagnostico.caracteres_amostra,
+            "rota_sugerida": diagnostico.rota_sugerida,
+            "texto_amostra": diagnostico.texto_amostra,
+        }
+    )
+    dados["avisos"] = [*dados["avisos"], *diagnostico.avisos]
+    fontes = dict(dados.get("fontes_metadados", {}))
+    if not dados["numero_candidato"] and diagnostico.numero_texto:
+        dados["numero_candidato"] = diagnostico.numero_texto
+        dados["numero_normalizado"] = normalizar_numero(diagnostico.numero_texto)
+        fontes["numero_candidato"] = "texto_primeiras_paginas"
+        dados["avisos"] = [
+            aviso for aviso in dados["avisos"] if aviso != "número do ato não identificado"
+        ]
+    if not dados["ano_candidato"] and diagnostico.ano_texto:
+        dados["ano_candidato"] = diagnostico.ano_texto
+        fontes["ano_candidato"] = "texto_primeiras_paginas"
+        dados["avisos"] = [
+            aviso for aviso in dados["avisos"] if aviso != "ano do ato não identificado"
+        ]
+    dados["fontes_metadados"] = fontes
+    completo = bool(
+        dados["municipio_candidato"]
+        and dados["tipo_normativo_codigo"]
+        and dados["numero_candidato"]
+        and dados["ano_candidato"]
+    )
+    if dados["natureza"] == ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL and completo:
+        if fontes.get("numero_candidato") == "texto_primeiras_paginas":
+            dados["confianca"] = min(1.0, dados["confianca"] + 0.15)
+        if fontes.get("ano_candidato") == "texto_primeiras_paginas":
+            dados["confianca"] = min(1.0, dados["confianca"] + 0.15)
+        if dados["confianca"] >= settings.INGESTAO_CONFIANCA_AUTOMATICA:
+            dados["estado"] = ItemImportacaoLote.Estado.PRONTO
 
 
 def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict, list[str]]:
@@ -182,16 +245,22 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
                 continue
             resumo = sha256()
             assinatura = b""
-            with zip_file.open(info) as origem:
-                while bloco := origem.read(1024 * 1024):
-                    if not assinatura:
-                        assinatura = bloco[:5]
-                    resumo.update(bloco)
-            dados = _classificar(info.filename, lote.uf_padrao)
-            assinatura_valida = assinatura == b"%PDF-"
-            if not assinatura_valida:
-                dados["estado"] = ItemImportacaoLote.Estado.REVISAO
-                dados["avisos"].append("assinatura do arquivo não corresponde a PDF")
+            with NamedTemporaryFile(suffix=".pdf") as temporario:
+                with zip_file.open(info) as origem:
+                    while bloco := origem.read(1024 * 1024):
+                        if not assinatura:
+                            assinatura = bloco[:5]
+                        resumo.update(bloco)
+                        temporario.write(bloco)
+                temporario.flush()
+                dados = _classificar(info.filename, lote.uf_padrao)
+                assinatura_valida = assinatura == b"%PDF-"
+                if assinatura_valida:
+                    _aplicar_diagnostico(dados, temporario.name)
+                else:
+                    dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+                    dados["rota_sugerida"] = ItemImportacaoLote.RotaSugerida.MANUAL
+                    dados["avisos"].append("assinatura do arquivo não corresponde a PDF")
             hash_item = resumo.hexdigest()
             item = ItemImportacaoLote(
                 lote=lote,
@@ -209,12 +278,39 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
             else:
                 vistos.add(hash_item)
             novos.append(item)
+    rotas = Counter(item.rota_sugerida for item in novos)
     metricas = {
         "arquivos_zip": len(arquivos),
         "itens_pdf": len(novos),
         "bytes_descompactados": total_descompactado,
+        "rotas_sugeridas": dict(rotas),
+        "paginas_total": sum(item.paginas or 0 for item in novos),
     }
     return novos, metricas, avisos_lote
+
+
+def _vincular_documentos_apoio(lote: ImportacaoLote) -> None:
+    naturezas = [
+        ItemImportacaoLote.Natureza.ANEXO_NORMATIVO,
+        ItemImportacaoLote.Natureza.FRAGMENTO_NORMATIVO,
+    ]
+    for apoio in lote.itens.filter(natureza__in=naturezas):
+        if not apoio.numero_normalizado or not apoio.ano_candidato:
+            continue
+        principal = (
+            lote.itens.filter(
+                municipio_candidato=apoio.municipio_candidato,
+                natureza=ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL,
+                numero_normalizado=apoio.numero_normalizado,
+                ano_candidato=apoio.ano_candidato,
+            )
+            .exclude(pk=apoio.pk)
+            .order_by("indice_arquivo")
+            .first()
+        )
+        if principal:
+            apoio.documento_principal_candidato = principal
+            apoio.save(update_fields=["documento_principal_candidato", "atualizado_em"])
 
 
 def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
@@ -237,6 +333,7 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
                     .first()
                 )
                 item.save(update_fields=["duplicado_de", "atualizado_em"])
+            _vincular_documentos_apoio(lote)
             contagem = Counter(lote.itens.values_list("estado", flat=True))
             lote.metricas = {
                 **metricas,
@@ -260,10 +357,7 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
 
 
 def _aplicacao_do_item(item: ItemImportacaoLote) -> AplicacaoMunicipal:
-    municipio, _ = Municipio.objects.get_or_create(
-        nome=item.municipio_candidato,
-        uf=item.uf,
-    )
+    municipio, _ = Municipio.objects.get_or_create(nome=item.municipio_candidato, uf=item.uf)
     aplicacao, _ = AplicacaoMunicipal.objects.get_or_create(
         municipio=municipio,
         titulo=f"{item.lote.titulo} — {municipio.nome}",
@@ -313,10 +407,11 @@ def _materializar_item(zip_file: ZipFile, item: ItemImportacaoLote) -> VersaoDoc
         with transaction.atomic():
             tipo = TipoNormativo.objects.get(codigo=item.tipo_normativo_codigo, ativo=True)
             aplicacao = _aplicacao_do_item(item)
+            numero_documento = item.numero_normalizado or item.numero_candidato
             documento, criado = DocumentoNormativo.objects.get_or_create(
                 aplicacao=aplicacao,
                 tipo=tipo,
-                numero=item.numero_candidato,
+                numero=numero_documento,
                 ano=item.ano_candidato,
                 defaults={
                     "titulo": item.titulo_candidato,
@@ -339,7 +434,8 @@ def _materializar_item(zip_file: ZipFile, item: ItemImportacaoLote) -> VersaoDoc
                     mime_type="application/pdf",
                     origem_recebimento=item.lote.origem_recebimento,
                     observacoes_ingestao=(
-                        f"Importado pelo lote {item.lote.pk}; caminho: {item.caminho_relativo}"
+                        f"Importado pelo lote {item.lote.pk}; caminho: {item.caminho_relativo}; "
+                        f"número informado: {item.numero_candidato}; rota sugerida: {item.rota_sugerida}"
                     ),
                 )
                 versao.arquivo.save(item.nome_original, File(temporario), save=True)
