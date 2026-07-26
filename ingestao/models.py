@@ -30,6 +30,13 @@ class ImportacaoLote(models.Model):
     arquivo_zip = models.FileField(upload_to=caminho_lote)
     nome_original = models.CharField(max_length=255, blank=True)
     sha256 = models.CharField(max_length=64, editable=False, db_index=True)
+    chave_idempotencia_sha256 = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        unique=True,
+        editable=False,
+    )
     tamanho_bytes = models.PositiveBigIntegerField(default=0, editable=False)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECEBIDO)
     parametros = models.JSONField(default=dict, blank=True)
@@ -46,8 +53,35 @@ class ImportacaoLote(models.Model):
         verbose_name = "importação em lote"
         verbose_name_plural = "importações em lote"
 
+    def _registro_existente(self) -> ImportacaoLote | None:
+        if not self.pk:
+            return None
+        return type(self).objects.filter(pk=self.pk).only("arquivo_zip", "sha256").first()
+
+    def clean(self) -> None:
+        super().clean()
+        self.uf_padrao = self.uf_padrao.strip().upper()
+        if len(self.uf_padrao) != 2:
+            raise ValidationError({"uf_padrao": "Informe uma UF com duas letras."})
+        existente = self._registro_existente()
+        if existente and (
+            not self.arquivo_zip
+            or not self.arquivo_zip._committed
+            or existente.arquivo_zip.name != self.arquivo_zip.name
+        ):
+            raise ValidationError({"arquivo_zip": "O ZIP original é imutável após o recebimento."})
+        if existente and self.sha256 != existente.sha256:
+            raise ValidationError({"sha256": "O hash do ZIP original não pode ser alterado."})
+
     def save(self, *args, **kwargs) -> None:
         self.uf_padrao = self.uf_padrao.strip().upper()
+        existente = self._registro_existente()
+        if existente and (
+            not self.arquivo_zip
+            or not self.arquivo_zip._committed
+            or existente.arquivo_zip.name != self.arquivo_zip.name
+        ):
+            raise ValidationError({"arquivo_zip": "O ZIP original é imutável após o recebimento."})
         if self.arquivo_zip and not self.sha256:
             arquivo = self.arquivo_zip.file
             self.tamanho_bytes = self.arquivo_zip.size
@@ -91,6 +125,7 @@ class ItemImportacaoLote(models.Model):
         FALHOU = "falhou", "Falhou"
 
     lote = models.ForeignKey(ImportacaoLote, on_delete=models.CASCADE, related_name="itens")
+    indice_arquivo = models.PositiveIntegerField()
     caminho_relativo = models.TextField()
     nome_original = models.CharField(max_length=255)
     municipio_candidato = models.CharField(max_length=150, blank=True)
@@ -104,6 +139,7 @@ class ItemImportacaoLote(models.Model):
     sha256 = models.CharField(max_length=64, db_index=True)
     tamanho_bytes = models.PositiveBigIntegerField(default=0)
     mime_type = models.CharField(max_length=120, default="application/pdf")
+    assinatura_pdf_valida = models.BooleanField(default=False, editable=False)
     confianca = models.FloatField(default=0.0)
     avisos = models.JSONField(default=list, blank=True)
     estado = models.CharField(max_length=16, choices=Estado.choices, default=Estado.REVISAO)
@@ -132,15 +168,25 @@ class ItemImportacaoLote(models.Model):
     atualizado_em = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["caminho_relativo"]
+        ordering = ["indice_arquivo"]
         constraints = [
             models.UniqueConstraint(
-                fields=["lote", "caminho_relativo"],
-                name="item_importacao_caminho_unico",
+                fields=["lote", "indice_arquivo"],
+                name="item_importacao_indice_unico",
             )
         ]
         verbose_name = "item de importação"
         verbose_name_plural = "itens de importação"
+
+    def clean(self) -> None:
+        super().clean()
+        self.uf = self.uf.strip().upper()
+        if self.uf and len(self.uf) != 2:
+            raise ValidationError({"uf": "Informe uma UF com duas letras."})
+        if self.estado == self.Estado.PRONTO and not self.assinatura_pdf_valida:
+            raise ValidationError(
+                {"estado": "Um arquivo sem assinatura PDF válida não pode ser confirmado."}
+            )
 
     def __str__(self) -> str:
         return self.caminho_relativo
