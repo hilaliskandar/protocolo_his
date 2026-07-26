@@ -63,7 +63,15 @@ def corrigir_testes_resposta() -> None:
     )
     texto_interface = texto_interface.replace(
         "        download.close()\n",
+        "        for fechar in download._resource_closers:\n"
+        "            fechar()\n"
+        "        download._resource_closers.clear()\n",
+    )
+    texto_interface = texto_interface.replace(
         "        download.file_to_stream.close()\n",
+        "        for fechar in download._resource_closers:\n"
+        "            fechar()\n"
+        "        download._resource_closers.clear()\n",
     )
     caminho_interface.write_text(texto_interface, encoding="utf-8")
 
@@ -71,7 +79,15 @@ def corrigir_testes_resposta() -> None:
     texto_pdf = caminho_pdf.read_text(encoding="utf-8")
     texto_pdf = texto_pdf.replace(
         "                resposta.close()\n",
+        "                for fechar in resposta._resource_closers:\n"
+        "                    fechar()\n"
+        "                resposta._resource_closers.clear()\n",
+    )
+    texto_pdf = texto_pdf.replace(
         "                resposta.file_to_stream.close()\n",
+        "                for fechar in resposta._resource_closers:\n"
+        "                    fechar()\n"
+        "                resposta._resource_closers.clear()\n",
     )
     caminho_pdf.write_text(texto_pdf, encoding="utf-8")
 
