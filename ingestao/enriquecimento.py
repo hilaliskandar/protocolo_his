@@ -14,6 +14,8 @@ RE_ATO_TEXTO = re.compile(
     re.IGNORECASE,
 )
 RE_ANO = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})\b")
+LIMITE_PAGINA_VAZIA = 10
+LIMITE_TEXTO_UTIL = 80
 
 
 def normalizar_numero(valor: str) -> str:
@@ -31,6 +33,7 @@ class DiagnosticoPreliminar:
     numero_texto: str
     ano_texto: int | None
     avisos: list[str]
+    caracteres_por_pagina: tuple[int, ...] = ()
 
 
 def _metadados_do_texto(texto: str) -> tuple[str, int | None]:
@@ -47,30 +50,41 @@ def _metadados_do_texto(texto: str) -> tuple[str, int | None]:
     return numero, ano
 
 
+def _classificar_rota(contagens: list[int]) -> tuple[str, str | None]:
+    if not contagens:
+        return "manual", "PDF sem páginas disponíveis para diagnóstico preliminar"
+    paginas_vazias = sum(valor <= LIMITE_PAGINA_VAZIA for valor in contagens)
+    paginas_textuais = sum(valor >= LIMITE_TEXTO_UTIL for valor in contagens)
+    if paginas_vazias == len(contagens):
+        return "ocr", "nenhum texto nativo encontrado na amostra; OCR provavelmente necessário"
+    if paginas_textuais and paginas_vazias:
+        return "misto", "amostra combina páginas com texto útil e páginas sem camada textual"
+    if paginas_textuais:
+        return "texto_nativo", None
+    return "misto", "camada textual escassa e inconclusiva na amostra; verificar o documento"
+
+
 def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> DiagnosticoPreliminar:
     avisos: list[str] = []
     try:
         leitor = PdfReader(str(caminho), strict=False)
         total_paginas = len(leitor.pages)
         textos: list[str] = []
+        contagens: list[int] = []
         paginas_amostradas = min(total_paginas, limite_paginas)
         for pagina in leitor.pages[:paginas_amostradas]:
             try:
-                textos.append(pagina.extract_text() or "")
+                texto_pagina = pagina.extract_text() or ""
             except Exception as erro:  # noqa: BLE001
-                textos.append("")
+                texto_pagina = ""
                 avisos.append(f"extração preliminar falhou em uma página: {erro}")
+            textos.append(texto_pagina)
+            contagens.append(len(texto_pagina.strip()))
         texto = "\n".join(textos)
         caracteres = len(texto.strip())
-        media = caracteres / max(paginas_amostradas, 1)
-        if caracteres == 0:
-            rota = "ocr"
-            avisos.append("nenhum texto nativo encontrado na amostra; OCR provavelmente necessário")
-        elif media < 200:
-            rota = "misto"
-            avisos.append("pouco texto nativo na amostra; verificar páginas escaneadas")
-        else:
-            rota = "texto_nativo"
+        rota, aviso_rota = _classificar_rota(contagens)
+        if aviso_rota:
+            avisos.append(aviso_rota)
         numero, ano = _metadados_do_texto(texto)
         return DiagnosticoPreliminar(
             paginas=total_paginas,
@@ -81,6 +95,7 @@ def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> Diagnostic
             numero_texto=numero,
             ano_texto=ano,
             avisos=avisos,
+            caracteres_por_pagina=tuple(contagens),
         )
     except Exception as erro:  # noqa: BLE001
         return DiagnosticoPreliminar(
@@ -92,4 +107,5 @@ def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> Diagnostic
             numero_texto="",
             ano_texto=None,
             avisos=[f"diagnóstico preliminar do PDF falhou: {erro}"],
+            caracteres_por_pagina=(),
         )
