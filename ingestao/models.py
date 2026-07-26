@@ -124,6 +124,12 @@ class ItemImportacaoLote(models.Model):
         CONFIRMADO = "confirmado", "Confirmado"
         FALHOU = "falhou", "Falhou"
 
+    class RotaSugerida(models.TextChoices):
+        TEXTO_NATIVO = "texto_nativo", "Texto nativo"
+        OCR = "ocr", "OCR"
+        MISTO = "misto", "Misto"
+        MANUAL = "manual", "Revisão manual"
+
     lote = models.ForeignKey(ImportacaoLote, on_delete=models.CASCADE, related_name="itens")
     indice_arquivo = models.PositiveIntegerField()
     caminho_relativo = models.TextField()
@@ -133,13 +139,34 @@ class ItemImportacaoLote(models.Model):
     natureza = models.CharField(max_length=32, choices=Natureza.choices, default=Natureza.OUTRO)
     tipo_normativo_codigo = models.CharField(max_length=60, blank=True)
     numero_candidato = models.CharField(max_length=40, blank=True)
+    numero_normalizado = models.CharField(max_length=40, blank=True, db_index=True)
     ano_candidato = models.PositiveSmallIntegerField(blank=True, null=True)
     titulo_candidato = models.CharField(max_length=255, blank=True)
     data_publicacao_candidata = models.DateField(blank=True, null=True)
+
+    numero_sugerido_texto = models.CharField(max_length=40, blank=True, editable=False)
+    numero_sugerido_normalizado = models.CharField(
+        max_length=40, blank=True, db_index=True, editable=False
+    )
+    ano_sugerido_texto = models.PositiveSmallIntegerField(blank=True, null=True, editable=False)
+    fontes_sugestoes = models.JSONField(default=dict, blank=True, editable=False)
+    divergencias_metadados = models.JSONField(default=list, blank=True, editable=False)
+
     sha256 = models.CharField(max_length=64, db_index=True)
     tamanho_bytes = models.PositiveBigIntegerField(default=0)
     mime_type = models.CharField(max_length=120, default="application/pdf")
     assinatura_pdf_valida = models.BooleanField(default=False, editable=False)
+    paginas = models.PositiveIntegerField(blank=True, null=True, editable=False)
+    paginas_amostradas = models.PositiveSmallIntegerField(default=0, editable=False)
+    caracteres_amostra = models.PositiveIntegerField(default=0, editable=False)
+    rota_sugerida = models.CharField(
+        max_length=20,
+        choices=RotaSugerida.choices,
+        blank=True,
+        editable=False,
+    )
+    texto_amostra = models.TextField(blank=True, editable=False)
+    fontes_metadados = models.JSONField(default=dict, blank=True, editable=False)
     confianca = models.FloatField(default=0.0)
     avisos = models.JSONField(default=list, blank=True)
     estado = models.CharField(max_length=16, choices=Estado.choices, default=Estado.REVISAO)
@@ -149,6 +176,25 @@ class ItemImportacaoLote(models.Model):
         related_name="duplicatas",
         blank=True,
         null=True,
+    )
+    documento_principal_candidato = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="documentos_apoio",
+        blank=True,
+        null=True,
+        verbose_name="documento principal confirmado",
+        help_text="Vínculo aceito para o documento de apoio após revisão.",
+    )
+    documento_principal_sugerido = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="documentos_apoio_sugeridos",
+        blank=True,
+        null=True,
+        editable=False,
+        verbose_name="documento principal sugerido",
+        help_text="Hipótese automática de vínculo; não autoriza confirmação.",
     )
     documento_criado = models.ForeignKey(
         "applications.DocumentoNormativo",
@@ -178,15 +224,72 @@ class ItemImportacaoLote(models.Model):
         verbose_name = "item de importação"
         verbose_name_plural = "itens de importação"
 
+    @staticmethod
+    def normalizar_numero(valor: str) -> str:
+        return "".join(caractere for caractere in valor if caractere.isdigit())
+
+    def _erro_vinculo_principal(self, campo: str) -> str | None:
+        relacionado_id = getattr(self, f"{campo}_id", None)
+        if not relacionado_id:
+            return None
+        if self.pk and relacionado_id == self.pk:
+            return "O item não pode apontar para si próprio."
+        relacionado = getattr(self, campo)
+        if self.lote_id and relacionado.lote_id != self.lote_id:
+            return "O documento principal deve pertencer ao mesmo lote."
+        if relacionado.natureza != self.Natureza.NORMATIVO_MUNICIPAL:
+            return "O documento principal deve ser um ato normativo municipal."
+        if relacionado.estado in {
+            self.Estado.DUPLICADO,
+            self.Estado.IGNORADO,
+            self.Estado.FALHOU,
+        }:
+            return "O documento principal não pode estar duplicado, ignorado ou com falha."
+        if not relacionado.assinatura_pdf_valida:
+            return "O documento principal deve possuir assinatura PDF válida."
+        if campo == "documento_principal_candidato":
+            obrigatorios = [
+                relacionado.municipio_candidato,
+                relacionado.uf,
+                relacionado.tipo_normativo_codigo,
+                relacionado.numero_normalizado or relacionado.numero_candidato,
+                relacionado.ano_candidato,
+            ]
+            if not all(obrigatorios):
+                return "O documento principal confirmado deve possuir metadados normativos mínimos."
+        if (
+            self.municipio_candidato
+            and relacionado.municipio_candidato != self.municipio_candidato
+        ):
+            return "O documento principal deve pertencer ao mesmo município do item de apoio."
+        return None
+
+    def _validar_vinculo_principal(self, campo: str) -> None:
+        if erro := self._erro_vinculo_principal(campo):
+            raise ValidationError({campo: erro})
+
     def clean(self) -> None:
         super().clean()
         self.uf = self.uf.strip().upper()
+        self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
+        self.numero_sugerido_normalizado = self.normalizar_numero(self.numero_sugerido_texto)
         if self.uf and len(self.uf) != 2:
             raise ValidationError({"uf": "Informe uma UF com duas letras."})
         if self.estado == self.Estado.PRONTO and not self.assinatura_pdf_valida:
             raise ValidationError(
                 {"estado": "Um arquivo sem assinatura PDF válida não pode ser confirmado."}
             )
+        self._validar_vinculo_principal("documento_principal_candidato")
+        self._validar_vinculo_principal("documento_principal_sugerido")
+
+    def save(self, *args, **kwargs) -> None:
+        self.numero_normalizado = self.normalizar_numero(self.numero_candidato)
+        self.numero_sugerido_normalizado = self.normalizar_numero(self.numero_sugerido_texto)
+        if erro := self._erro_vinculo_principal("documento_principal_candidato"):
+            raise ValidationError({"documento_principal_candidato": erro})
+        if self._erro_vinculo_principal("documento_principal_sugerido"):
+            self.documento_principal_sugerido = None
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.caminho_relativo

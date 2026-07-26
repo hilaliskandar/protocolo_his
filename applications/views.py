@@ -47,7 +47,9 @@ def inicio(request):
         "versao_documento__documento__aplicacao__municipio",
     )
     contexto = {
-        "total_municipios": Municipio.objects.count(),
+        "total_municipios": Municipio.objects.filter(
+            aplicacoes__documentos__isnull=False
+        ).distinct().count(),
         "total_aplicacoes": AplicacaoMunicipal.objects.count(),
         "total_documentos": DocumentoNormativo.objects.count(),
         "total_versoes": VersaoDocumento.objects.count(),

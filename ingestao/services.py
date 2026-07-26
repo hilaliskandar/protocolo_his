@@ -22,12 +22,21 @@ from applications.models import (
     VersaoDocumento,
 )
 
+from .enriquecimento import diagnosticar_pdf, normalizar_numero
 from .models import ImportacaoLote, ItemImportacaoLote
 
 RE_NUMERO_ANO = [
-    re.compile(r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(\d[\d.\-]*)[_\s/-]+(\d{4})", re.I),
+    re.compile(
+        r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(?:n[º°o.]?\s*)?"
+        r"(\d[\d.\-]*)[_\s/-]+(\d{4})",
+        re.I,
+    ),
     re.compile(r"(\d[\d.]*)[_\s/-]+(\d{4})"),
 ]
+RE_NUMERO_SEM_ANO = re.compile(
+    r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(?:n[º°o.]?\s*)?(\d[\d.\-]*)",
+    re.I,
+)
 PASTAS_GENERICAS = {
     "anexo",
     "anexos",
@@ -102,6 +111,8 @@ def _numero_ano(nome: str) -> tuple[str, int | None]:
             ano = int(achado.group(2))
             if 1800 <= ano <= 2200:
                 return numero, ano
+    if achado := RE_NUMERO_SEM_ANO.search(stem):
+        return achado.group(1).strip(" .-_"), None
     return "", None
 
 
@@ -117,10 +128,18 @@ def _classificar(caminho: str, uf: str) -> dict:
     numero, ano = _numero_ano(nome)
     confianca = 0.20
     avisos: list[str] = []
+    fontes: dict[str, str] = {}
     if municipio:
         confianca += 0.25
+        fontes["municipio_candidato"] = "estrutura_pastas"
     else:
         avisos.append("município não identificado pela estrutura de pastas")
+    if tipo:
+        fontes["tipo_normativo_codigo"] = "nome_arquivo"
+    if numero:
+        fontes["numero_candidato"] = "nome_arquivo"
+    if ano:
+        fontes["ano_candidato"] = "nome_arquivo"
     if natureza == ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL:
         confianca += 0.15
         if tipo:
@@ -146,12 +165,80 @@ def _classificar(caminho: str, uf: str) -> dict:
         "natureza": natureza,
         "tipo_normativo_codigo": tipo,
         "numero_candidato": numero,
+        "numero_normalizado": normalizar_numero(numero),
         "ano_candidato": ano,
         "titulo_candidato": _titulo(nome),
+        "fontes_metadados": fontes,
         "confianca": round(min(confianca, 1.0), 3),
         "avisos": avisos,
         "estado": ItemImportacaoLote.Estado.PRONTO if pronto else ItemImportacaoLote.Estado.REVISAO,
     }
+
+
+def _registrar_divergencia(dados: dict, campo: str, aceito, sugerido) -> None:
+    divergencias = list(dados.get("divergencias_metadados", []))
+    divergencias.append(
+        {
+            "campo": campo,
+            "valor_aceito": aceito,
+            "valor_sugerido": sugerido,
+            "fonte_aceita": dados.get("fontes_metadados", {}).get(campo, ""),
+            "fonte_sugerida": "texto_primeiras_paginas",
+        }
+    )
+    dados["divergencias_metadados"] = divergencias
+    dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+    dados["avisos"].append(
+        f"{campo.replace('_', ' ')} encontrado no texto diverge do metadado estrutural"
+    )
+
+
+def _aplicar_diagnostico(dados: dict, caminho_temporario: str) -> None:
+    diagnostico = diagnosticar_pdf(caminho_temporario)
+    dados.update(
+        {
+            "paginas": diagnostico.paginas or None,
+            "paginas_amostradas": diagnostico.paginas_amostradas,
+            "caracteres_amostra": diagnostico.caracteres_amostra,
+            "rota_sugerida": diagnostico.rota_sugerida,
+            "texto_amostra": diagnostico.texto_amostra,
+            "numero_sugerido_texto": diagnostico.numero_texto,
+            "numero_sugerido_normalizado": normalizar_numero(diagnostico.numero_texto),
+            "ano_sugerido_texto": diagnostico.ano_texto,
+            "fontes_sugestoes": {
+                chave: "texto_primeiras_paginas"
+                for chave, valor in {
+                    "numero_sugerido_texto": diagnostico.numero_texto,
+                    "ano_sugerido_texto": diagnostico.ano_texto,
+                }.items()
+                if valor
+            },
+            "divergencias_metadados": [],
+        }
+    )
+    dados["avisos"] = [*dados["avisos"], *diagnostico.avisos]
+
+    numero_aceito = dados.get("numero_candidato", "")
+    numero_sugerido = diagnostico.numero_texto
+    if numero_aceito and numero_sugerido:
+        if normalizar_numero(numero_aceito) != normalizar_numero(numero_sugerido):
+            _registrar_divergencia(dados, "numero_candidato", numero_aceito, numero_sugerido)
+    elif numero_sugerido:
+        dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+        dados["avisos"].append(
+            "número sugerido pelo texto requer adjudicação humana antes da confirmação"
+        )
+
+    ano_aceito = dados.get("ano_candidato")
+    ano_sugerido = diagnostico.ano_texto
+    if ano_aceito and ano_sugerido:
+        if ano_aceito != ano_sugerido:
+            _registrar_divergencia(dados, "ano_candidato", ano_aceito, ano_sugerido)
+    elif ano_sugerido:
+        dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+        dados["avisos"].append(
+            "ano sugerido pelo texto requer adjudicação humana antes da confirmação"
+        )
 
 
 def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict, list[str]]:
@@ -182,16 +269,22 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
                 continue
             resumo = sha256()
             assinatura = b""
-            with zip_file.open(info) as origem:
-                while bloco := origem.read(1024 * 1024):
-                    if not assinatura:
-                        assinatura = bloco[:5]
-                    resumo.update(bloco)
-            dados = _classificar(info.filename, lote.uf_padrao)
-            assinatura_valida = assinatura == b"%PDF-"
-            if not assinatura_valida:
-                dados["estado"] = ItemImportacaoLote.Estado.REVISAO
-                dados["avisos"].append("assinatura do arquivo não corresponde a PDF")
+            with NamedTemporaryFile(suffix=".pdf") as temporario:
+                with zip_file.open(info) as origem:
+                    while bloco := origem.read(1024 * 1024):
+                        if not assinatura:
+                            assinatura = bloco[:5]
+                        resumo.update(bloco)
+                        temporario.write(bloco)
+                temporario.flush()
+                dados = _classificar(info.filename, lote.uf_padrao)
+                assinatura_valida = assinatura == b"%PDF-"
+                if assinatura_valida:
+                    _aplicar_diagnostico(dados, temporario.name)
+                else:
+                    dados["estado"] = ItemImportacaoLote.Estado.REVISAO
+                    dados["rota_sugerida"] = ItemImportacaoLote.RotaSugerida.MANUAL
+                    dados["avisos"].append("assinatura do arquivo não corresponde a PDF")
             hash_item = resumo.hexdigest()
             item = ItemImportacaoLote(
                 lote=lote,
@@ -209,12 +302,39 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
             else:
                 vistos.add(hash_item)
             novos.append(item)
+    rotas = Counter(item.rota_sugerida for item in novos)
     metricas = {
         "arquivos_zip": len(arquivos),
         "itens_pdf": len(novos),
         "bytes_descompactados": total_descompactado,
+        "rotas_sugeridas": dict(rotas),
+        "paginas_total": sum(item.paginas or 0 for item in novos),
     }
     return novos, metricas, avisos_lote
+
+
+def _vincular_documentos_apoio(lote: ImportacaoLote) -> None:
+    naturezas = [
+        ItemImportacaoLote.Natureza.ANEXO_NORMATIVO,
+        ItemImportacaoLote.Natureza.FRAGMENTO_NORMATIVO,
+    ]
+    for apoio in lote.itens.filter(natureza__in=naturezas):
+        if not apoio.numero_normalizado or not apoio.ano_candidato:
+            continue
+        principal = (
+            lote.itens.filter(
+                municipio_candidato=apoio.municipio_candidato,
+                natureza=ItemImportacaoLote.Natureza.NORMATIVO_MUNICIPAL,
+                numero_normalizado=apoio.numero_normalizado,
+                ano_candidato=apoio.ano_candidato,
+            )
+            .exclude(pk=apoio.pk)
+            .order_by("indice_arquivo")
+            .first()
+        )
+        if principal:
+            apoio.documento_principal_sugerido = principal
+            apoio.save(update_fields=["documento_principal_sugerido", "atualizado_em"])
 
 
 def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
@@ -237,6 +357,7 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
                     .first()
                 )
                 item.save(update_fields=["duplicado_de", "atualizado_em"])
+            _vincular_documentos_apoio(lote)
             contagem = Counter(lote.itens.values_list("estado", flat=True))
             lote.metricas = {
                 **metricas,
@@ -260,10 +381,7 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
 
 
 def _aplicacao_do_item(item: ItemImportacaoLote) -> AplicacaoMunicipal:
-    municipio, _ = Municipio.objects.get_or_create(
-        nome=item.municipio_candidato,
-        uf=item.uf,
-    )
+    municipio, _ = Municipio.objects.get_or_create(nome=item.municipio_candidato, uf=item.uf)
     aplicacao, _ = AplicacaoMunicipal.objects.get_or_create(
         municipio=municipio,
         titulo=f"{item.lote.titulo} — {municipio.nome}",
@@ -313,10 +431,11 @@ def _materializar_item(zip_file: ZipFile, item: ItemImportacaoLote) -> VersaoDoc
         with transaction.atomic():
             tipo = TipoNormativo.objects.get(codigo=item.tipo_normativo_codigo, ativo=True)
             aplicacao = _aplicacao_do_item(item)
+            numero_documento = item.numero_normalizado or item.numero_candidato
             documento, criado = DocumentoNormativo.objects.get_or_create(
                 aplicacao=aplicacao,
                 tipo=tipo,
-                numero=item.numero_candidato,
+                numero=numero_documento,
                 ano=item.ano_candidato,
                 defaults={
                     "titulo": item.titulo_candidato,
@@ -339,7 +458,8 @@ def _materializar_item(zip_file: ZipFile, item: ItemImportacaoLote) -> VersaoDoc
                     mime_type="application/pdf",
                     origem_recebimento=item.lote.origem_recebimento,
                     observacoes_ingestao=(
-                        f"Importado pelo lote {item.lote.pk}; caminho: {item.caminho_relativo}"
+                        f"Importado pelo lote {item.lote.pk}; caminho: {item.caminho_relativo}; "
+                        f"número informado: {item.numero_candidato}; rota sugerida: {item.rota_sugerida}"
                     ),
                 )
                 versao.arquivo.save(item.nome_original, File(temporario), save=True)

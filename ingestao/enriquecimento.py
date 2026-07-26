@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from pypdf import PdfReader
+
+RE_ATO_TEXTO = re.compile(
+    r"\b(?:lei\s+complementar|lei\s+ordin[aá]ria|lei|lc)\s*"
+    r"(?:n[º°o.]*)?\s*"
+    r"(?P<numero>[0-9]+(?:\.[0-9]+)*)"
+    r"(?:\s*[/\-]\s*(?P<ano_abreviado>18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2}))?",
+    re.IGNORECASE,
+)
+RE_ANO = re.compile(r"\b(18\d{2}|19\d{2}|20\d{2}|21\d{2}|22\d{2})\b")
+RE_REFERENCIA_ATUALIZACAO = re.compile(
+    r"(?:texto\s+compilado|compila(?:ção|do)|atualizad[oa]\s+at[eé](?:\s+a)?|"
+    r"alterad[oa]\s+pela|reda(?:ção|cao)\s+dada\s+pela|inclu[ií]d[oa]\s+pela|"
+    r"revogad[oa]\s+pela)\s*$",
+    re.IGNORECASE,
+)
+LIMITE_PAGINA_VAZIA = 10
+LIMITE_TEXTO_UTIL = 80
+
+
+def normalizar_numero(valor: str) -> str:
+    """Produz chave canônica numérica sem apagar a forma original exibida."""
+    return "".join(caractere for caractere in valor if caractere.isdigit())
+
+
+@dataclass(frozen=True)
+class DiagnosticoPreliminar:
+    paginas: int
+    paginas_amostradas: int
+    caracteres_amostra: int
+    rota_sugerida: str
+    texto_amostra: str
+    numero_texto: str
+    ano_texto: int | None
+    avisos: list[str]
+    caracteres_por_pagina: tuple[int, ...] = ()
+
+
+def _eh_referencia_de_atualizacao(texto: str, inicio: int) -> bool:
+    contexto = re.sub(r"\s+", " ", texto[max(0, inicio - 120) : inicio]).strip()
+    return bool(RE_REFERENCIA_ATUALIZACAO.search(contexto))
+
+
+def _metadados_do_texto(texto: str) -> tuple[str, int | None]:
+    for achado in RE_ATO_TEXTO.finditer(texto):
+        if _eh_referencia_de_atualizacao(texto, achado.start()):
+            continue
+        numero = achado.group("numero").strip(" .-/")
+        ano_abreviado = achado.group("ano_abreviado")
+        ano = int(ano_abreviado) if ano_abreviado else None
+        if ano is None:
+            trecho = texto[achado.end() : achado.end() + 180]
+            ano_achado = RE_ANO.search(trecho)
+            ano = int(ano_achado.group(1)) if ano_achado else None
+        return numero, ano
+    return "", None
+
+
+def _classificar_rota(contagens: list[int]) -> tuple[str, str | None]:
+    if not contagens:
+        return "manual", "PDF sem páginas disponíveis para diagnóstico preliminar"
+    paginas_vazias = sum(valor <= LIMITE_PAGINA_VAZIA for valor in contagens)
+    paginas_textuais = sum(valor >= LIMITE_TEXTO_UTIL for valor in contagens)
+    if paginas_vazias == len(contagens):
+        return "ocr", "nenhum texto nativo encontrado na amostra; OCR provavelmente necessário"
+    if paginas_textuais and paginas_vazias:
+        return "misto", "amostra combina páginas com texto útil e páginas sem camada textual"
+    if paginas_textuais:
+        return "texto_nativo", None
+    return "misto", "camada textual escassa e inconclusiva na amostra; verificar o documento"
+
+
+def diagnosticar_pdf(caminho: str | Path, limite_paginas: int = 3) -> DiagnosticoPreliminar:
+    avisos: list[str] = []
+    try:
+        leitor = PdfReader(str(caminho), strict=False)
+        total_paginas = len(leitor.pages)
+        textos: list[str] = []
+        contagens: list[int] = []
+        paginas_amostradas = min(total_paginas, limite_paginas)
+        for pagina in leitor.pages[:paginas_amostradas]:
+            try:
+                texto_pagina = pagina.extract_text() or ""
+            except Exception as erro:  # noqa: BLE001
+                texto_pagina = ""
+                avisos.append(f"extração preliminar falhou em uma página: {erro}")
+            textos.append(texto_pagina)
+            contagens.append(len(texto_pagina.strip()))
+        texto = "\n".join(textos)
+        caracteres = len(texto.strip())
+        rota, aviso_rota = _classificar_rota(contagens)
+        if aviso_rota:
+            avisos.append(aviso_rota)
+        numero, ano = _metadados_do_texto(texto)
+        return DiagnosticoPreliminar(
+            paginas=total_paginas,
+            paginas_amostradas=paginas_amostradas,
+            caracteres_amostra=caracteres,
+            rota_sugerida=rota,
+            texto_amostra=re.sub(r"\s+", " ", texto).strip()[:4000],
+            numero_texto=numero,
+            ano_texto=ano,
+            avisos=avisos,
+            caracteres_por_pagina=tuple(contagens),
+        )
+    except Exception as erro:  # noqa: BLE001
+        return DiagnosticoPreliminar(
+            paginas=0,
+            paginas_amostradas=0,
+            caracteres_amostra=0,
+            rota_sugerida="manual",
+            texto_amostra="",
+            numero_texto="",
+            ano_texto=None,
+            avisos=[f"diagnóstico preliminar do PDF falhou: {erro}"],
+            caracteres_por_pagina=(),
+        )
