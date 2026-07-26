@@ -14,36 +14,24 @@ jobs:
   corrigir:
     runs-on: ubuntu-latest
     steps:
-      - name: Obter codigo
+      - name: Obter código
         uses: actions/checkout@v4
         with:
           ref: fix/portabilidade-windows-postgresql-0.3.6
 
-      - name: Internalizar correcao no modelo
+      - name: Internalizar correção no modelo
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           caminho_modelo = Path("applications/models.py")
           texto = caminho_modelo.read_text(encoding="utf-8")
-          anterior = '''    def _calcular_sha256(self) -> str:
-              resumo = sha256()
-              arquivo = self.arquivo.file
-              posicao_original = arquivo.tell() if arquivo.seekable() else None
-              arquivo.seek(0)
-
-              if hasattr(arquivo, "chunks"):
-                  for bloco in arquivo.chunks():
-                      resumo.update(bloco)
-              else:
-                  while bloco := arquivo.read(1024 * 1024):
-                      resumo.update(bloco)
-
-              if posicao_original is not None:
-                  arquivo.seek(posicao_original)
-              return resumo.hexdigest()
-          '''
-          novo = '''    def _calcular_sha256(self) -> str:
+          padrao = re.compile(
+              r"    def _calcular_sha256\(self\) -> str:\n.*?(?=\n    def _localizar_duplicado)",
+              re.DOTALL,
+          )
+          substituto = '''    def _calcular_sha256(self) -> str:
               resumo = sha256()
               estava_fechado = self.arquivo.closed
               arquivo = self.arquivo.file
@@ -67,9 +55,10 @@ jobs:
                   if estava_fechado:
                       self.arquivo.close()
           '''
-          if anterior not in texto:
-              raise SystemExit("Bloco esperado de _calcular_sha256 nao foi localizado.")
-          caminho_modelo.write_text(texto.replace(anterior, novo, 1), encoding="utf-8")
+          texto_corrigido, quantidade = padrao.subn(substituto.rstrip(), texto, count=1)
+          if quantidade != 1:
+              raise SystemExit(f"Método substituído {quantidade} vezes; esperado: 1.")
+          caminho_modelo.write_text(texto_corrigido, encoding="utf-8")
 
           Path("applications/apps.py").write_text(
               'from django.apps import AppConfig\n\n\n'
@@ -79,14 +68,20 @@ jobs:
               '    verbose_name = "Aplicações do Protocolo HIS"\n',
               encoding="utf-8",
           )
-          Path("applications/compatibilidade_arquivos.py").unlink()
+          Path("applications/compatibilidade_arquivos.py").unlink(missing_ok=True)
           Path(".github/workflows/internalizar-fechamento-fieldfile.yml").unlink()
           PY
 
-      - name: Registrar correcao
+      - name: Validar alteração antes do commit
+        run: |
+          grep -A 26 "def _calcular_sha256" applications/models.py
+          test ! -e applications/compatibilidade_arquivos.py
+          ! grep -q "aplicar_correcao_fieldfile" applications/apps.py
+
+      - name: Registrar correção
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898242+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
-          git commit -m "fix: internalizar fechamento de arquivos no modelo"
-          git push
+          git commit -m "fix: fechar FieldFile aberto internamente"
+          git push origin HEAD:fix/portabilidade-windows-postgresql-0.3.6
