@@ -43,7 +43,10 @@ class TesteExibicaoPdfNoLeitor(TestCase):
 
             resposta = self.client.get(reverse("exibir_pdf", args=[versao.pk]))
 
-            self.assertEqual(resposta.status_code, 200)
-            self.assertEqual(resposta["Content-Type"], "application/pdf")
-            self.assertEqual(resposta["X-Frame-Options"], "SAMEORIGIN")
-            self.assertTrue(resposta["Content-Disposition"].startswith("inline;"))
+            try:
+                self.assertEqual(resposta.status_code, 200)
+                self.assertEqual(resposta["Content-Type"], "application/pdf")
+                self.assertEqual(resposta["X-Frame-Options"], "SAMEORIGIN")
+                self.assertTrue(resposta["Content-Disposition"].startswith("inline;"))
+            finally:
+                resposta.close()
