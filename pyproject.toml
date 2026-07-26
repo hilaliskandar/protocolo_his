@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "protocolo-his"
-version = "0.2.1"
+version = "0.3.4"
 description = "Plataforma para execução auditável do Protocolo HIS"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -47,12 +47,13 @@ reports = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["config", "applications"]
+packages = ["config", "applications", "ingestao"]
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/config",
   "/applications",
+  "/ingestao",
   "/schemas",
   "/docs",
   "/scripts",
