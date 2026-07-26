@@ -139,17 +139,31 @@ def leitor_documento(request, pk: int):
     if modo not in MODOS_LEITOR:
         modo = "pdf"
 
-    versao = documento.versoes.order_by("-versao", "-criado_em").first()
-    artefato_markdown = (
-        ArtefatoProcessado.objects.filter(
-            processamento__versao_documento__documento=documento,
-            processamento__status=ProcessamentoDocumento.Status.CONCLUIDO,
-            tipo=ArtefatoProcessado.Tipo.MARKDOWN,
-        )
-        .select_related("processamento")
-        .order_by("-criado_em", "-pk")
-        .first()
+    versoes_disponiveis = list(
+        documento.versoes.order_by("-versao", "-criado_em", "-pk")
     )
+    versao_parametro = request.GET.get("versao", "").strip()
+    if versao_parametro:
+        try:
+            versao_pk = int(versao_parametro)
+        except ValueError as erro:
+            raise Http404("Versão documental inválida.") from erro
+        versao = get_object_or_404(documento.versoes.all(), pk=versao_pk)
+    else:
+        versao = versoes_disponiveis[0] if versoes_disponiveis else None
+
+    artefato_markdown = None
+    if versao is not None:
+        artefato_markdown = (
+            ArtefatoProcessado.objects.filter(
+                processamento__versao_documento=versao,
+                processamento__status=ProcessamentoDocumento.Status.CONCLUIDO,
+                tipo=ArtefatoProcessado.Tipo.MARKDOWN,
+            )
+            .select_related("processamento")
+            .order_by("-criado_em", "-pk")
+            .first()
+        )
 
     markdown_html = None
     markdown_bruto = None
@@ -162,6 +176,7 @@ def leitor_documento(request, pk: int):
     contexto = {
         "documento": documento,
         "versao": versao,
+        "versoes_disponiveis": versoes_disponiveis,
         "modo": modo,
         "artefato_markdown": artefato_markdown,
         "markdown_html": markdown_html,
