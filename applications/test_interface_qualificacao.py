@@ -4,6 +4,7 @@ from tempfile import TemporaryDirectory
 
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connections
 from django.test import TestCase
 from django.urls import reverse
 
@@ -20,6 +21,11 @@ from .models import (
 
 
 class TestesInterfaceQualificacao(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        connections.close_all()
+        super().setUpClass()
+
     def setUp(self):
         self.municipio = Municipio.objects.create(
             nome="Recife",
