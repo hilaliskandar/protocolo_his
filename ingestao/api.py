@@ -180,10 +180,23 @@ def inspecionar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
     try:
         inspecionar_lote(lote)
     except IngestaoErroGovernanca as erro:
-        return JsonResponse({"erro": str(erro), "categoria": erro.categoria, "lote": _lote_json(lote)}, status=409)
-    except (OSError, ValueError, IngestaoErro) as erro:
-        categoria = getattr(erro, "categoria", "tecnico")
-        return JsonResponse({"erro": str(erro), "categoria": categoria, "lote": _lote_json(lote)}, status=422)
+        # IngestaoErroGovernanca messages are always controlled strings we write ourselves.
+        return JsonResponse(
+            {"erro": str(erro), "categoria": erro.categoria, "lote": _lote_json(lote)},
+            status=409,
+        )
+    except IngestaoErro as erro:
+        # IngestaoErro subclasses use controlled, prefixed messages safe for external exposure.
+        return JsonResponse(
+            {"erro": str(erro), "categoria": erro.categoria, "lote": _lote_json(lote)},
+            status=422,
+        )
+    except (OSError, ValueError):
+        # For OS and generic errors, expose only a safe generic message; details are in lote.mensagem_erro.
+        return JsonResponse(
+            {"erro": "Falha ao processar o arquivo ZIP.", "categoria": "tecnico", "lote": _lote_json(lote)},
+            status=422,
+        )
     return JsonResponse(_lote_json(lote, incluir_itens=True))
 
 
@@ -271,8 +284,12 @@ def confirmar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
     try:
         resumo = confirmar_lote(lote)
     except IngestaoErroGovernanca as erro:
+        # IngestaoErroGovernanca messages are always controlled strings we write ourselves.
         return JsonResponse({"erro": str(erro), "categoria": erro.categoria}, status=409)
-    except (ValueError, IngestaoErro) as erro:
-        categoria = getattr(erro, "categoria", "generico")
-        return JsonResponse({"erro": str(erro), "categoria": categoria}, status=409)
+    except IngestaoErro as erro:
+        # IngestaoErro subclasses use controlled, prefixed messages safe for external exposure.
+        return JsonResponse({"erro": str(erro), "categoria": erro.categoria}, status=409)
+    except (ValueError, OSError):
+        # For generic errors, expose only a safe message; details are persisted in lote.mensagem_erro.
+        return JsonResponse({"erro": "Falha ao confirmar o lote.", "categoria": "tecnico"}, status=409)
     return JsonResponse({"lote": _lote_json(lote), "resumo": resumo})
