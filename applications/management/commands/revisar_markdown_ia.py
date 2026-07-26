@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from applications.models import ProcessamentoDocumento, VersaoDocumento
@@ -14,13 +15,29 @@ class Command(BaseCommand):
         grupo.add_argument("--aplicacao", type=int)
         grupo.add_argument("--documento", type=int)
         grupo.add_argument("--versao", type=int)
-        parser.add_argument("--modelo", required=True)
+        parser.add_argument(
+            "--modelo",
+            default=settings.OLLAMA_MODEL,
+            help=f"Modelo do Ollama. Padrão configurado: {settings.OLLAMA_MODEL}.",
+        )
         parser.add_argument("--forcar", action="store_true")
         parser.add_argument("--falhar-rapido", action="store_true")
-        parser.add_argument("--max-caracteres", type=int, default=8_000)
-        parser.add_argument("--confianca-minima", type=float, default=0.9)
-        parser.add_argument("--alteracao-maxima", type=float, default=0.2)
-        parser.add_argument("--remocao-maxima", type=float, default=0.08)
+        parser.add_argument("--max-caracteres", type=int, default=settings.OLLAMA_REVIEW_MAX_CHARS)
+        parser.add_argument(
+            "--confianca-minima",
+            type=float,
+            default=settings.OLLAMA_REVIEW_MIN_CONFIDENCE,
+        )
+        parser.add_argument(
+            "--alteracao-maxima",
+            type=float,
+            default=settings.OLLAMA_REVIEW_MAX_CHANGE,
+        )
+        parser.add_argument(
+            "--remocao-maxima",
+            type=float,
+            default=settings.OLLAMA_REVIEW_MAX_REMOVAL,
+        )
 
     def handle(self, *args, **opcoes) -> None:
         if opcoes["max_caracteres"] < 1_000:
@@ -86,6 +103,7 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(
                     f"Versão {versao.pk}: revisão {acao}; "
+                    f"modelo={processamento.versao_ferramenta}; "
                     f"unidades={processamento.metricas.get('unidades_total', 0)}; "
                     f"autoaprovadas={processamento.metricas.get('unidades_autoaprovadas', 0)}; "
                     f"bloqueadas={processamento.metricas.get('unidades_bloqueadas', 0)}."
