@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "incremento/**"
+      - "fix/**"
   pull_request:
     branches:
       - main
@@ -84,9 +85,9 @@ jobs:
           retention-days: 14
 
   postgres-migrations:
-    name: PostgreSQL e migrações
+    name: PostgreSQL, migrações e testes
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     services:
       postgres:
@@ -135,3 +136,6 @@ jobs:
 
       - name: Confirmar ausência de migrações não versionadas
         run: python manage.py makemigrations --check --dry-run
+
+      - name: Executar testes com PostgreSQL
+        run: python manage.py test --verbosity 2
