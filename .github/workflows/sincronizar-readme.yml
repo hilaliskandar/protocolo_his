@@ -1,0 +1,43 @@
+name: Sincronizar apêndices do README
+
+on:
+  push:
+    branches:
+      - "docs/**"
+    paths:
+      - docs/APENDICE_VERSIONAMENTO.md
+      - docs/decisoes-tecnologicas.md
+      - scripts/sincronizar_apendice_readme.py
+      - .github/workflows/sincronizar-readme.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Atualizar README
+        run: python scripts/sincronizar_apendice_readme.py
+
+      - name: Commitar atualização
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "README já estava sincronizado."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "docs: sincronizar apêndices do README"
+          git push
