@@ -1,7 +1,7 @@
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
@@ -57,15 +57,18 @@ class TesteLeitorComMultiplasVersoes(TestCase):
             ferramenta="teste",
             versao_ferramenta="1",
         )
-        artefato = ArtefatoProcessado(
+        conteudo_bytes = conteudo_markdown.encode("utf-8")
+        artefato = ArtefatoProcessado.objects.create(
             processamento=processamento,
             tipo=ArtefatoProcessado.Tipo.MARKDOWN,
+            arquivo=SimpleUploadedFile(
+                f"versao-{numero_versao}.md",
+                conteudo_bytes,
+                "text/markdown",
+            ),
+            sha256=sha256(conteudo_bytes).hexdigest(),
+            tamanho_bytes=len(conteudo_bytes),
             mime_type="text/markdown",
-        )
-        artefato.arquivo.save(
-            f"versao-{numero_versao}.md",
-            ContentFile(conteudo_markdown.encode("utf-8")),
-            save=True,
         )
         return versao, artefato
 
