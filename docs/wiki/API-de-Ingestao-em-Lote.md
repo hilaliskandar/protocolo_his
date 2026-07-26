@@ -53,6 +53,8 @@ A leitura preliminar **não valida a identidade jurídica do ato**. Número ou a
 
 Quando o texto divergir do nome do arquivo ou de outra fonte estrutural, a API preserva os dois valores, registra a divergência e mantém o item em `revisao`. Isso evita que uma remissão a outra lei seja confundida com a identificação do documento principal.
 
+Os campos de sugestão e divergência são produzidos pela inspeção e expostos para consulta; não são editáveis pelo `PATCH`. A adjudicação humana ocorre nos campos candidatos aceitos.
+
 ### Documentos de apoio
 
 Anexos e fragmentos possuem dois vínculos distintos:
