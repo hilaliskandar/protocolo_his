@@ -3,9 +3,11 @@ from __future__ import annotations
 import hmac
 import json
 from functools import wraps
+from hashlib import sha256
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
@@ -18,8 +20,6 @@ from .services import confirmar_lote, inspecionar_lote
 
 
 def _autorizado(request: HttpRequest) -> bool:
-    if request.user.is_authenticated and request.user.is_staff:
-        return True
     esperado = settings.API_INGESTAO_TOKEN
     recebido = request.headers.get("Authorization", "")
     if not esperado or not recebido.startswith("Bearer "):
@@ -31,7 +31,9 @@ def autenticacao_api(view):
     @wraps(view)
     def interno(request: HttpRequest, *args, **kwargs):
         if not _autorizado(request):
-            return JsonResponse({"erro": "não autorizado"}, status=401)
+            resposta = JsonResponse({"erro": "não autorizado"}, status=401)
+            resposta["WWW-Authenticate"] = "Bearer"
+            return resposta
         return view(request, *args, **kwargs)
 
     return interno
@@ -40,6 +42,7 @@ def autenticacao_api(view):
 def _item_json(item: ItemImportacaoLote) -> dict:
     return {
         "id": item.pk,
+        "indice_arquivo": item.indice_arquivo,
         "caminho_relativo": item.caminho_relativo,
         "nome_original": item.nome_original,
         "municipio_candidato": item.municipio_candidato,
@@ -53,6 +56,7 @@ def _item_json(item: ItemImportacaoLote) -> dict:
         "sha256": item.sha256,
         "tamanho_bytes": item.tamanho_bytes,
         "mime_type": item.mime_type,
+        "assinatura_pdf_valida": item.assinatura_pdf_valida,
         "confianca": item.confianca,
         "avisos": item.avisos,
         "estado": item.estado,
@@ -82,15 +86,41 @@ def _lote_json(lote: ImportacaoLote, incluir_itens: bool = False) -> dict:
     return dados
 
 
+def _hash_idempotencia(request: HttpRequest) -> str | None:
+    chave = request.headers.get("Idempotency-Key", "").strip()
+    if not chave:
+        return None
+    if len(chave) > 200:
+        raise ValidationError({"Idempotency-Key": "A chave deve ter no máximo 200 caracteres."})
+    return sha256(chave.encode("utf-8")).hexdigest()
+
+
 @csrf_exempt
 @autenticacao_api
 @require_http_methods(["POST"])
 def criar_importacao(request: HttpRequest) -> JsonResponse:
+    try:
+        chave_hash = _hash_idempotencia(request)
+    except ValidationError as erro:
+        return JsonResponse({"erro": erro.message_dict}, status=400)
+    if chave_hash:
+        existente = ImportacaoLote.objects.filter(chave_idempotencia_sha256=chave_hash).first()
+        if existente:
+            dados = _lote_json(existente)
+            dados["reutilizado"] = True
+            return JsonResponse(dados, status=200)
     arquivo = request.FILES.get("arquivo_zip")
     if arquivo is None:
         return JsonResponse({"erro": "campo arquivo_zip é obrigatório"}, status=400)
     if arquivo.size > settings.INGESTAO_MAX_ZIP_BYTES:
         return JsonResponse({"erro": "arquivo ZIP excede o limite configurado"}, status=413)
+    if not arquivo.name.casefold().endswith(".zip"):
+        return JsonResponse({"erro": "arquivo_zip deve possuir extensão .zip"}, status=400)
+    posicao = arquivo.tell()
+    assinatura = arquivo.read(4)
+    arquivo.seek(posicao)
+    if assinatura[:2] != b"PK":
+        return JsonResponse({"erro": "assinatura do arquivo não corresponde a ZIP"}, status=400)
     titulo = request.POST.get("titulo", "").strip()
     origem = request.POST.get("origem_recebimento", "").strip()
     if not titulo or not origem:
@@ -102,11 +132,20 @@ def criar_importacao(request: HttpRequest) -> JsonResponse:
         uf_padrao=request.POST.get("uf_padrao", "SP"),
         arquivo_zip=arquivo,
         nome_original=arquivo.name,
+        chave_idempotencia_sha256=chave_hash,
         parametros={"dry_run": True},
     )
     try:
         lote.full_clean(exclude=["sha256", "tamanho_bytes"])
         lote.save()
+    except IntegrityError:
+        if chave_hash:
+            existente = ImportacaoLote.objects.filter(chave_idempotencia_sha256=chave_hash).first()
+            if existente:
+                dados = _lote_json(existente)
+                dados["reutilizado"] = True
+                return JsonResponse(dados, status=200)
+        return JsonResponse({"erro": "conflito ao registrar o lote"}, status=409)
     except ValidationError as erro:
         return JsonResponse({"erro": erro.message_dict}, status=400)
     return JsonResponse(_lote_json(lote), status=201)
@@ -149,6 +188,8 @@ def atualizar_item(request: HttpRequest, item_id: int) -> JsonResponse:
         dados = json.loads(request.body or b"{}")
     except json.JSONDecodeError:
         return JsonResponse({"erro": "JSON inválido"}, status=400)
+    if not isinstance(dados, dict):
+        return JsonResponse({"erro": "o corpo JSON deve ser um objeto"}, status=400)
     campos = {
         "municipio_candidato",
         "uf",
@@ -158,8 +199,6 @@ def atualizar_item(request: HttpRequest, item_id: int) -> JsonResponse:
         "ano_candidato",
         "titulo_candidato",
         "data_publicacao_candidata",
-        "confianca",
-        "avisos",
         "estado",
     }
     desconhecidos = set(dados) - campos
