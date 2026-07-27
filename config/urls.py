@@ -11,6 +11,7 @@ def healthcheck(_request):
 
 urlpatterns = [
     path("", include("applications.urls")),
+    path("importacoes/", include("ingestao.ui_urls")),
     path("api/v1/", include("ingestao.urls")),
     path("admin/", admin.site.urls),
     path("health/", healthcheck, name="healthcheck"),
