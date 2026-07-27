@@ -341,20 +341,9 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
                 )
             )
         if len(arquivos) > settings.INGESTAO_MAX_ARQUIVOS:
-<<<<<<< HEAD
             raise IngestaoErroConteudo(
-                f"[conteudo] ZIP excede o limite de arquivos permitido "
-                f"({len(arquivos)} > {settings.INGESTAO_MAX_ARQUIVOS})."
-            )
-        total_descompactado = sum(info.file_size for _, info in arquivos)
-        if total_descompactado > settings.INGESTAO_MAX_DESCOMPACTADO_BYTES:
-            raise IngestaoErroConteudo(
-                f"[conteudo] ZIP excede o limite descompactado permitido "
-                f"({total_descompactado} > {settings.INGESTAO_MAX_DESCOMPACTADO_BYTES} bytes)."
-=======
-            raise ValueError(
                 _mensagem_validacao(
-                    categoria="governanca",
+                    categoria="conteudo",
                     codigo="zip_limite_arquivos_excedido",
                     mensagem="ZIP excede o limite de arquivos permitido.",
                     acao=(
@@ -365,9 +354,9 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
             )
         total_descompactado = sum(info.file_size for _, info in arquivos)
         if total_descompactado > settings.INGESTAO_MAX_DESCOMPACTADO_BYTES:
-            raise ValueError(
+            raise IngestaoErroConteudo(
                 _mensagem_validacao(
-                    categoria="governanca",
+                    categoria="conteudo",
                     codigo="zip_limite_tamanho_excedido",
                     mensagem="ZIP excede o limite descompactado permitido.",
                     acao=(
@@ -375,7 +364,6 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
                         f"{settings.INGESTAO_MAX_DESCOMPACTADO_BYTES} bytes descompactados."
                     ),
                 )
->>>>>>> origin/main
             )
         for indice, info in arquivos:
             if not _caminho_seguro(info):
