@@ -1,6 +1,6 @@
 ## Apêndice — versionamento do desenvolvimento
 
-**Versão corrente documentada:** `0.3.5`.
+**Versão corrente documentada:** `0.4.1`.
 
 A plataforma adota uma convenção de versionamento própria para registrar o avanço do protótipo antes da versão estável `1.0.0`.
 
@@ -9,7 +9,7 @@ A plataforma adota uma convenção de versionamento própria para registrar o av
 - **Implementação inicial:** inicia em `0.0.1`.
 - **Incremento de roadmap:** quando uma nova etapa funcional é incorporada, avança-se o componente intermediário: `0.x.0` → `0.(x+1).0`.
 - **Ajuste, aperfeiçoamento ou correção:** dentro da etapa corrente, avança-se o último componente: `0.x.y` → `0.x.(y+1)`.
-- **Teste de alternativa em branch:** recebe uma letra após a versão de referência, por exemplo `0.3.5a`, `0.3.5b` e `0.3.5c`. A letra identifica uma alternativa experimental e não substitui uma versão integrada à `main`.
+- **Teste de alternativa em branch:** recebe uma letra após a versão de referência, por exemplo `0.4.1a`, `0.4.1b` e `0.4.1c`. A letra identifica uma alternativa experimental e não substitui uma versão integrada à `main`.
 - **Integração à `main`:** somente alterações incorporadas à branch principal entram no histórico oficial abaixo.
 
 ### Histórico consolidado
@@ -26,26 +26,30 @@ A plataforma adota uma convenção de versionamento própria para registrar o av
 | `0.3.3` | documentação e governança | Formalização da convenção de versionamento e inclusão deste histórico no README. | atualização do README |
 | `0.3.4` | aperfeiçoamento da ingestão | API autenticada para receber ZIPs, inspecionar itens, gerar manifesto provisório, corrigir metadados e confirmar registros do corpus com controles de segurança. | PR #10 |
 | `0.3.5` | aperfeiçoamento metodológico da ingestão | Diagnóstico preliminar de PDFs, separação entre sugestões textuais e metadados aceitos, registro de divergências, vínculos sugeridos de documentos de apoio, testes de regressão e painel restrito aos municípios com legislação em análise. | PR #11 |
+| `0.3.6` | correção e portabilidade | Execução integral dos testes no PostgreSQL canônico, correções de handles de arquivo e compatibilidade com Windows. | PR #12 |
+| `0.3.7` | correção de consistência documental | O leitor seleciona explicitamente a versão documental e carrega PDF e Markdown provenientes da mesma versão. | PR #13 |
+| `0.4.0` | incremento de roadmap | Classificação auditável da natureza das versões documentais e registro de sucessão, equivalência e derivação, com validação humana e exposição no manifesto. | PR #16 |
+| `0.4.1` | aperfeiçoamento metodológico | Segmentação determinística e idempotente de artigos e anexos, registro de posições, métricas, gates e ocorrências sem correção silenciosa da fonte. | PR em revisão |
 
-### Delimitação metodológica da versão 0.3.5
+### Delimitação metodológica da versão 0.4.1
 
-A leitura das primeiras páginas gera apenas **sugestões de metadados** e um diagnóstico técnico preliminar. Ela não valida a identidade jurídica do ato e não autoriza confirmação automática.
+A segmentação usa o Markdown correspondente à própria versão documental. O artigo é a unidade canônica e preserva texto, hash, páginas, linhas e posições no documento. Anexos são identificados separadamente, e lacunas, ordens regressivas e duplicações produzem ocorrências auditáveis.
 
-Número e ano encontrados no texto permanecem separados dos campos aceitos para materialização do corpus. Quando houver divergência entre nome, estrutura de pastas e conteúdo preliminar, o item retorna ao estado de revisão humana. Anexos e fragmentos podem receber vínculo automático apenas como hipótese sugerida; o vínculo confirmado depende de adjudicação explícita.
+Uma execução sem `--confirmar` não modifica o banco. Processamentos concluídos com o mesmo artefato, hash e versão do segmentador são reutilizados. A reexecução forçada não substitui artigos revisados ou adjudicados sem autorização explícita.
 
-O painel principal também passou a contar apenas municípios com ao menos um documento normativo associado, distinguindo o cadastro territorial nacional dos municípios em que a análise legislativa foi efetivamente iniciada.
+A versão não usa IA para decidir limites de artigos, não escolhe automaticamente uma versão canônica e não elimina duplicações da fonte. Quando a restrição de unicidade impede persistir dois artigos com a mesma numeração, todas as ocorrências continuam preservadas no diagnóstico JSON e nas evidências da ocorrência documental.
 
 ### Uso em branches experimentais
 
 Uma alternativa ainda não incorporada deve partir da versão vigente e receber uma letra, sem alterar o histórico oficial. Exemplos:
 
 ```text
-0.3.5a  alternativa A para classificação documental
-0.3.5b  alternativa B para o mesmo ensaio
-0.3.5c  terceira alternativa comparável
+0.4.1a  alternativa A para alinhamento de artigos
+0.4.1b  alternativa B para o mesmo ensaio
+0.4.1c  terceira alternativa comparável
 ```
 
-Enquanto o processo de ingestão e recepção documental não estiver superado, aperfeiçoamentos permanecem na série `0.3.x`. Assim, o próximo ajuste integrado será `0.3.6`. A passagem para `0.4.0` fica reservada a uma etapa posterior do roadmap, já além da consolidação da ingestão.
+Os próximos aperfeiçoamentos da série `0.4.x` devem usar os artigos segmentados como base para alinhamento entre versões, comparação assistida e adjudicação humana.
 
 ### Princípio de rastreabilidade
 

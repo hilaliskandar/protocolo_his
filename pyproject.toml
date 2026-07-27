@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "protocolo-his"
-version = "0.3.6"
+version = "0.4.1"
 description = "Plataforma para execução auditável do Protocolo HIS"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -48,13 +48,14 @@ reports = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["config", "applications", "ingestao"]
+packages = ["config", "applications", "ingestao", "versionamento"]
 
 [tool.hatch.build.targets.sdist]
 include = [
   "/config",
   "/applications",
   "/ingestao",
+  "/versionamento",
   "/schemas",
   "/docs",
   "/scripts",
@@ -75,8 +76,11 @@ extend-exclude = ["*/migrations/*.py"]
 [tool.ruff.lint.per-file-ignores]
 "applications/models.py" = ["RUF012"]
 "applications/revisao_ia.py" = ["C405"]
+"applications/segmentacao.py" = ["RUF007"]
+"applications/test_segmentacao_normativa.py" = ["I001"]
 "ingestao/models.py" = ["RUF012"]
 "ingestao/services.py" = ["I001", "FURB167"]
+"versionamento/models.py" = ["RUF012"]
 
 [tool.mypy]
 python_version = "3.12"

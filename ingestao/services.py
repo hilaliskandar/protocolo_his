@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from collections import Counter
 from hashlib import sha256
@@ -108,9 +109,34 @@ PASTAS_GENERICAS = {
 }
 
 
+def _mensagem_validacao(
+    *,
+    categoria: str,
+    codigo: str,
+    mensagem: str,
+    acao: str,
+    arquivo: str | None = None,
+) -> str:
+    registro: dict[str, str] = {
+        "categoria": categoria,
+        "codigo": codigo,
+        "mensagem": mensagem,
+        "acao": acao,
+    }
+    if arquivo:
+        registro["arquivo"] = arquivo
+    return json.dumps(registro, ensure_ascii=False, sort_keys=True)
+
+
 def _caminho_seguro(info: ZipInfo) -> bool:
-    caminho = PurePosixPath(info.filename.replace("\\", "/"))
-    return not caminho.is_absolute() and ".." not in caminho.parts
+    original = info.filename.strip()
+    if not original or "\x00" in original:
+        return False
+    normalizado = original.replace("\\", "/")
+    caminho = PurePosixPath(normalizado)
+    if caminho.is_absolute() or ".." in caminho.parts:
+        return False
+    return not re.match(r"^[a-zA-Z]:", normalizado)
 
 
 def _municipio_do_caminho(caminho: str) -> str:
@@ -305,7 +331,17 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
     with lote.arquivo_zip.open("rb") as arquivo, ZipFile(arquivo) as zip_file:
         infos = zip_file.infolist()
         arquivos = [(indice, info) for indice, info in enumerate(infos) if not info.is_dir()]
+        if not arquivos:
+            raise ValueError(
+                _mensagem_validacao(
+                    categoria="governanca",
+                    codigo="zip_sem_arquivos",
+                    mensagem="O ZIP não possui arquivos processáveis.",
+                    acao="Envie um ZIP contendo pelo menos um PDF.",
+                )
+            )
         if len(arquivos) > settings.INGESTAO_MAX_ARQUIVOS:
+<<<<<<< HEAD
             raise IngestaoErroConteudo(
                 f"[conteudo] ZIP excede o limite de arquivos permitido "
                 f"({len(arquivos)} > {settings.INGESTAO_MAX_ARQUIVOS})."
@@ -315,20 +351,94 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
             raise IngestaoErroConteudo(
                 f"[conteudo] ZIP excede o limite descompactado permitido "
                 f"({total_descompactado} > {settings.INGESTAO_MAX_DESCOMPACTADO_BYTES} bytes)."
+=======
+            raise ValueError(
+                _mensagem_validacao(
+                    categoria="governanca",
+                    codigo="zip_limite_arquivos_excedido",
+                    mensagem="ZIP excede o limite de arquivos permitido.",
+                    acao=(
+                        "Divida o lote em volumes menores e mantenha até "
+                        f"{settings.INGESTAO_MAX_ARQUIVOS} arquivo(s) por ZIP."
+                    ),
+                )
+            )
+        total_descompactado = sum(info.file_size for _, info in arquivos)
+        if total_descompactado > settings.INGESTAO_MAX_DESCOMPACTADO_BYTES:
+            raise ValueError(
+                _mensagem_validacao(
+                    categoria="governanca",
+                    codigo="zip_limite_tamanho_excedido",
+                    mensagem="ZIP excede o limite descompactado permitido.",
+                    acao=(
+                        "Reduza o volume do lote para até "
+                        f"{settings.INGESTAO_MAX_DESCOMPACTADO_BYTES} bytes descompactados."
+                    ),
+                )
+>>>>>>> origin/main
             )
         for indice, info in arquivos:
             if not _caminho_seguro(info):
-                avisos_lote.append(f"caminho inseguro ignorado: {info.filename}")
+                avisos_lote.append(
+                    _mensagem_validacao(
+                        categoria="governanca",
+                        codigo="zip_caminho_inseguro",
+                        mensagem="caminho inseguro ignorado",
+                        acao="Remova caminhos absolutos, com travessia (..) ou nulos no ZIP.",
+                        arquivo=info.filename,
+                    )
+                )
+                continue
+            if info.file_size > settings.INGESTAO_MAX_ARQUIVO_BYTES:
+                avisos_lote.append(
+                    _mensagem_validacao(
+                        categoria="governanca",
+                        codigo="zip_arquivo_grande",
+                        mensagem="arquivo excede o limite individual permitido",
+                        acao=(
+                            "Divida o documento ou aumente o limite configurado de "
+                            f"{settings.INGESTAO_MAX_ARQUIVO_BYTES} bytes."
+                        ),
+                        arquivo=info.filename,
+                    )
+                )
                 continue
             if info.file_size == 0:
-                avisos_lote.append(f"arquivo vazio ignorado: {info.filename}")
+                avisos_lote.append(
+                    _mensagem_validacao(
+                        categoria="conteudo",
+                        codigo="zip_arquivo_vazio",
+                        mensagem="arquivo vazio ignorado",
+                        acao="Remova arquivos vazios e envie apenas PDFs com conteúdo.",
+                        arquivo=info.filename,
+                    )
+                )
                 continue
             razao = info.file_size / max(info.compress_size, 1)
             if razao > settings.INGESTAO_MAX_RAZAO_COMPACTACAO:
-                avisos_lote.append(f"razão de compactação suspeita: {info.filename}")
+                avisos_lote.append(
+                    _mensagem_validacao(
+                        categoria="tecnico",
+                        codigo="zip_razao_compactacao_suspeita",
+                        mensagem="razão de compactação suspeita",
+                        acao=(
+                            "Recompacte o arquivo com ferramenta confiável e confirme que não "
+                            "há conteúdo supercomprimido."
+                        ),
+                        arquivo=info.filename,
+                    )
+                )
                 continue
             if Path(info.filename).suffix.casefold() != ".pdf":
-                avisos_lote.append(f"tipo não suportado ignorado: {info.filename}")
+                avisos_lote.append(
+                    _mensagem_validacao(
+                        categoria="governanca",
+                        codigo="zip_tipo_nao_suportado",
+                        mensagem="tipo não suportado ignorado",
+                        acao="Mantenha somente arquivos PDF no lote.",
+                        arquivo=info.filename,
+                    )
+                )
                 continue
             resumo = sha256()
             assinatura = b""
@@ -347,7 +457,15 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
                 else:
                     dados["estado"] = ItemImportacaoLote.Estado.REVISAO
                     dados["rota_sugerida"] = ItemImportacaoLote.RotaSugerida.MANUAL
-                    dados["avisos"].append("assinatura do arquivo não corresponde a PDF")
+                    dados["avisos"].append(
+                        _mensagem_validacao(
+                            categoria="conteudo",
+                            codigo="pdf_assinatura_invalida",
+                            mensagem="assinatura do arquivo não corresponde a PDF",
+                            acao="Substitua o arquivo por um PDF válido antes da confirmação.",
+                            arquivo=info.filename,
+                        )
+                    )
             hash_item = resumo.hexdigest()
             item = ItemImportacaoLote(
                 lote=lote,

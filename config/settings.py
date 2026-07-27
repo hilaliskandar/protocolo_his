@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "applications.apps.ApplicationsConfig",
     "ingestao.apps.IngestaoConfig",
+    "versionamento.apps.VersionamentoConfig",
 ]
 
 MIDDLEWARE = [
@@ -87,6 +88,9 @@ INGESTAO_MAX_ZIP_BYTES = int(os.getenv("INGESTAO_MAX_ZIP_BYTES", str(500 * 1024 
 INGESTAO_MAX_ARQUIVOS = int(os.getenv("INGESTAO_MAX_ARQUIVOS", "1000"))
 INGESTAO_MAX_DESCOMPACTADO_BYTES = int(
     os.getenv("INGESTAO_MAX_DESCOMPACTADO_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+INGESTAO_MAX_ARQUIVO_BYTES = int(
+    os.getenv("INGESTAO_MAX_ARQUIVO_BYTES", str(200 * 1024 * 1024))
 )
 INGESTAO_MAX_RAZAO_COMPACTACAO = float(os.getenv("INGESTAO_MAX_RAZAO_COMPACTACAO", "100"))
 INGESTAO_CONFIANCA_AUTOMATICA = float(os.getenv("INGESTAO_CONFIANCA_AUTOMATICA", "0.85"))
