@@ -1,6 +1,6 @@
 ## Apêndice — versionamento do desenvolvimento
 
-**Versão corrente documentada:** `0.4.0`.
+**Versão corrente documentada:** `0.4.1`.
 
 A plataforma adota uma convenção de versionamento própria para registrar o avanço do protótipo antes da versão estável `1.0.0`.
 
@@ -9,7 +9,7 @@ A plataforma adota uma convenção de versionamento própria para registrar o av
 - **Implementação inicial:** inicia em `0.0.1`.
 - **Incremento de roadmap:** quando uma nova etapa funcional é incorporada, avança-se o componente intermediário: `0.x.0` → `0.(x+1).0`.
 - **Ajuste, aperfeiçoamento ou correção:** dentro da etapa corrente, avança-se o último componente: `0.x.y` → `0.x.(y+1)`.
-- **Teste de alternativa em branch:** recebe uma letra após a versão de referência, por exemplo `0.4.0a`, `0.4.0b` e `0.4.0c`. A letra identifica uma alternativa experimental e não substitui uma versão integrada à `main`.
+- **Teste de alternativa em branch:** recebe uma letra após a versão de referência, por exemplo `0.4.1a`, `0.4.1b` e `0.4.1c`. A letra identifica uma alternativa experimental e não substitui uma versão integrada à `main`.
 - **Integração à `main`:** somente alterações incorporadas à branch principal entram no histórico oficial abaixo.
 
 ### Histórico consolidado
@@ -29,24 +29,27 @@ A plataforma adota uma convenção de versionamento própria para registrar o av
 | `0.3.6` | correção e portabilidade | Execução integral dos testes no PostgreSQL canônico, correções de handles de arquivo e compatibilidade com Windows. | PR #12 |
 | `0.3.7` | correção de consistência documental | O leitor seleciona explicitamente a versão documental e carrega PDF e Markdown provenientes da mesma versão. | PR #13 |
 | `0.4.0` | incremento de roadmap | Classificação auditável da natureza das versões documentais e registro de sucessão, equivalência e derivação, com validação humana e exposição no manifesto. | PR #16 |
+| `0.4.1` | aperfeiçoamento metodológico | Segmentação determinística e idempotente de artigos e anexos, registro de posições, métricas, gates e ocorrências sem correção silenciosa da fonte. | PR em revisão |
 
-### Delimitação metodológica da versão 0.4.0
+### Delimitação metodológica da versão 0.4.1
 
-A situação técnica de ingestão permanece separada da natureza normativa. Arquivos binariamente distintos não são tratados como duplicatas apenas por apresentarem textos semelhantes, e uma relação de sucessão não escolhe automaticamente a versão canônica de um release.
+A segmentação usa o Markdown correspondente à própria versão documental. O artigo é a unidade canônica e preserva texto, hash, páginas, linhas e posições no documento. Anexos são identificados separadamente, e lacunas, ordens regressivas e duplicações produzem ocorrências auditáveis.
 
-Classificações e relações podem ser registradas como pendentes. A confirmação exige responsável, data e justificativa. Relações de sucessão ligam versões do mesmo documento normativo em ordem crescente e não modificam arquivos originais, conversões ou decisões anteriores.
+Uma execução sem `--confirmar` não modifica o banco. Processamentos concluídos com o mesmo artefato, hash e versão do segmentador são reutilizados. A reexecução forçada não substitui artigos revisados ou adjudicados sem autorização explícita.
+
+A versão não usa IA para decidir limites de artigos, não escolhe automaticamente uma versão canônica e não elimina duplicações da fonte. Quando a restrição de unicidade impede persistir dois artigos com a mesma numeração, todas as ocorrências continuam preservadas no diagnóstico JSON e nas evidências da ocorrência documental.
 
 ### Uso em branches experimentais
 
 Uma alternativa ainda não incorporada deve partir da versão vigente e receber uma letra, sem alterar o histórico oficial. Exemplos:
 
 ```text
-0.4.0a  alternativa A para alinhamento de artigos
-0.4.0b  alternativa B para o mesmo ensaio
-0.4.0c  terceira alternativa comparável
+0.4.1a  alternativa A para alinhamento de artigos
+0.4.1b  alternativa B para o mesmo ensaio
+0.4.1c  terceira alternativa comparável
 ```
 
-Os próximos aperfeiçoamentos da série `0.4.x` devem usar as relações de versões como base para segmentação persistente, alinhamento de unidades normativas, comparação assistida e adjudicação humana.
+Os próximos aperfeiçoamentos da série `0.4.x` devem usar os artigos segmentados como base para alinhamento entre versões, comparação assistida e adjudicação humana.
 
 ### Princípio de rastreabilidade
 
