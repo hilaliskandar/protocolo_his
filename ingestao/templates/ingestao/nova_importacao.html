@@ -1,0 +1,57 @@
+{% extends "applications/base.html" %}
+
+{% block title %}Nova importação — Protocolo HIS{% endblock %}
+
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / Nova importação</div>
+<h1>Receber corpus em ZIP</h1>
+<p class="subtitulo">Registre um lote de documentos e, opcionalmente, execute a inspeção inicial dos PDFs.</p>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="{% if message.tags == 'error' %}erro{% else %}alerta{% endif %}">{{ message }}</div>
+    {% endfor %}
+{% endif %}
+
+<section class="painel" style="max-width: 760px;">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if formulario.non_field_errors %}
+            <div class="erro">{{ formulario.non_field_errors }}</div>
+        {% endif %}
+        {% for campo in formulario %}
+            <p>
+                <label for="{{ campo.id_for_label }}"><strong>{{ campo.label }}</strong></label><br>
+                {{ campo }}
+                {% if campo.help_text %}<br><span class="muted">{{ campo.help_text }}</span>{% endif %}
+                {% for erro in campo.errors %}<br><span style="color: var(--erro);">{{ erro }}</span>{% endfor %}
+            </p>
+        {% endfor %}
+        <div class="acoes">
+            <button class="botao" type="submit">Receber ZIP</button>
+            <a class="botao secundario" href="{% url 'inicio' %}">Cancelar</a>
+        </div>
+    </form>
+</section>
+
+{% if lotes_recentes %}
+<section class="painel" style="margin-top: 1rem;">
+    <h2>Importações recentes</h2>
+    <div class="tabela-wrap">
+        <table>
+            <thead><tr><th>Título</th><th>Arquivo</th><th>Status</th><th>Recebido em</th></tr></thead>
+            <tbody>
+            {% for lote in lotes_recentes %}
+                <tr>
+                    <td><a href="{% url 'detalhe_importacao_web' lote.pk %}">{{ lote.titulo }}</a></td>
+                    <td>{{ lote.nome_original }}</td>
+                    <td><span class="status {{ lote.status }}">{{ lote.get_status_display }}</span></td>
+                    <td>{{ lote.criado_em|date:"d/m/Y H:i" }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

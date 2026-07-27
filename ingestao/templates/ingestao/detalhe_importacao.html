@@ -1,0 +1,50 @@
+{% extends "applications/base.html" %}
+
+{% block title %}{{ lote.titulo }} — Importação{% endblock %}
+
+{% block content %}
+<div class="breadcrumb"><a href="{% url 'inicio' %}">Painel</a> / <a href="{% url 'nova_importacao' %}">Importações</a> / {{ lote.titulo }}</div>
+<h1>{{ lote.titulo }}</h1>
+<p class="subtitulo">{{ lote.nome_original }} — <span class="status {{ lote.status }}">{{ lote.get_status_display }}</span></p>
+
+{% if messages %}{% for message in messages %}<div class="{% if message.tags == 'error' %}erro{% else %}alerta{% endif %}">{{ message }}</div>{% endfor %}{% endif %}
+{% if lote.mensagem_erro %}<div class="erro"><strong>Falha registrada:</strong> {{ lote.mensagem_erro }}</div>{% endif %}
+
+<section class="painel">
+    <dl>
+        <dt>Origem</dt><dd>{{ lote.origem_recebimento }}</dd>
+        <dt>UF padrão</dt><dd>{{ lote.uf_padrao }}</dd>
+        <dt>SHA-256</dt><dd><code>{{ lote.sha256 }}</code></dd>
+        <dt>Tamanho</dt><dd>{{ lote.tamanho_bytes }} bytes</dd>
+        <dt>Recebido em</dt><dd>{{ lote.criado_em|date:"d/m/Y H:i:s" }}</dd>
+    </dl>
+</section>
+
+{% if lote.status != "confirmando" and lote.status != "confirmado" %}
+<div class="acoes">
+    <form method="post" action="{% url 'inspecionar_importacao_web' lote.pk %}">
+        {% csrf_token %}
+        <button class="botao" type="submit">
+            {% if lote.status == "recebido" %}Inspecionar ZIP{% else %}Reinspecionar ZIP{% endif %}
+        </button>
+    </form>
+</div>
+{% endif %}
+
+<section class="painel" style="margin-top: 1rem;">
+    <h2>Itens identificados</h2>
+    {% if itens %}
+    <div class="tabela-wrap"><table>
+        <thead><tr><th>Arquivo</th><th>Município</th><th>Natureza</th><th>Rota</th><th>Estado</th><th>Avisos</th></tr></thead>
+        <tbody>{% for item in itens %}<tr>
+            <td>{{ item.nome_original }}</td><td>{{ item.municipio_candidato|default:"—" }}/{{ item.uf|default:lote.uf_padrao }}</td>
+            <td>{{ item.get_natureza_display }}</td><td>{{ item.get_rota_sugerida_display|default:"—" }}</td>
+            <td><span class="status {{ item.estado }}">{{ item.get_estado_display }}</span></td>
+            <td>{% if item.avisos %}<ul>{% for aviso in item.avisos %}<li>{{ aviso }}</li>{% endfor %}</ul>{% else %}—{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="vazio">Nenhum item foi identificado ou a inspeção ainda não foi executada.</p>{% endif %}
+</section>
+
+<div class="acoes"><a class="botao secundario" href="{% url 'nova_importacao' %}">Receber outro ZIP</a></div>
+{% endblock %}
