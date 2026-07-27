@@ -26,6 +26,63 @@ from applications.models import (
 from .enriquecimento import diagnosticar_pdf, normalizar_numero
 from .models import ImportacaoLote, ItemImportacaoLote
 
+
+class IngestaoErro(Exception):
+    """Erro base de ingestão com classificação explícita."""
+
+    categoria: str = "generico"
+
+
+class IngestaoErroTecnico(IngestaoErro):
+    """Erro técnico ou de infraestrutura: ZIP corrompido, falha de I/O, manifesto inconsistente."""
+
+    categoria = "tecnico"
+
+
+class IngestaoErroConteudo(IngestaoErro):
+    """Erro de conteúdo: assinatura PDF inválida, hash mismatch, limites excedidos."""
+
+    categoria = "conteudo"
+
+
+class IngestaoErroGovernanca(IngestaoErro):
+    """Erro de governança: transição de estado inválida, política de ingestão violada."""
+
+    categoria = "governanca"
+
+
+# Transições de estado válidas para ImportacaoLote.
+# Um lote só pode avançar para os estados listados como destinos do estado atual.
+# - RECEBIDO → INSPECIONANDO: fluxo inicial.
+# - INSPECIONADO → CONFIRMANDO: confirmar após inspeção bem-sucedida.
+# - INSPECIONADO → INSPECIONANDO: reinspeção (ex.: após correção de metadados).
+# - FALHOU → INSPECIONANDO: reinspeção após falha.
+# Os estados CONFIRMANDO e CONFIRMADO não permitem reinspeção; eles são terminais
+# ou controlados internamente por confirmar_lote().
+TRANSICOES_VALIDAS_LOTE: dict[str, frozenset[str]] = {
+    ImportacaoLote.Status.RECEBIDO: frozenset({ImportacaoLote.Status.INSPECIONANDO}),
+    ImportacaoLote.Status.INSPECIONADO: frozenset({
+        ImportacaoLote.Status.CONFIRMANDO,
+        ImportacaoLote.Status.INSPECIONANDO,
+    }),
+    ImportacaoLote.Status.FALHOU: frozenset({ImportacaoLote.Status.INSPECIONANDO}),
+}
+
+
+def _validar_transicao_lote(lote: ImportacaoLote, proximo: str) -> None:
+    """Valida se a transição de estado do lote é permitida pela máquina de estados.
+
+    Levanta IngestaoErroGovernanca se a transição não for permitida.
+    """
+    permitidos = TRANSICOES_VALIDAS_LOTE.get(lote.status, frozenset())
+    if proximo not in permitidos:
+        destinos = ", ".join(sorted(permitidos)) if permitidos else "nenhum"
+        raise IngestaoErroGovernanca(
+            f"[governanca] Transição de estado inválida: {lote.status!r} → {proximo!r}. "
+            f"Estado atual {lote.status!r} permite transição para: {destinos}."
+        )
+
+
 RE_NUMERO_ANO = [
     re.compile(
         r"(?:lei(?:[_\s-]+complementar)?|l)[_\s-]*(?:n[º°o.]?\s*)?"
@@ -284,9 +341,9 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
                 )
             )
         if len(arquivos) > settings.INGESTAO_MAX_ARQUIVOS:
-            raise ValueError(
+            raise IngestaoErroConteudo(
                 _mensagem_validacao(
-                    categoria="governanca",
+                    categoria="conteudo",
                     codigo="zip_limite_arquivos_excedido",
                     mensagem="ZIP excede o limite de arquivos permitido.",
                     acao=(
@@ -297,9 +354,9 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
             )
         total_descompactado = sum(info.file_size for _, info in arquivos)
         if total_descompactado > settings.INGESTAO_MAX_DESCOMPACTADO_BYTES:
-            raise ValueError(
+            raise IngestaoErroConteudo(
                 _mensagem_validacao(
-                    categoria="governanca",
+                    categoria="conteudo",
                     codigo="zip_limite_tamanho_excedido",
                     mensagem="ZIP excede o limite descompactado permitido.",
                     acao=(
@@ -450,8 +507,7 @@ def _vincular_documentos_apoio(lote: ImportacaoLote) -> None:
 
 
 def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
-    if lote.status in {ImportacaoLote.Status.CONFIRMANDO, ImportacaoLote.Status.CONFIRMADO}:
-        raise ValueError("Lote já está em confirmação ou foi confirmado.")
+    _validar_transicao_lote(lote, ImportacaoLote.Status.INSPECIONANDO)
     lote.status = ImportacaoLote.Status.INSPECIONANDO
     lote.iniciado_em = timezone.now()
     lote.mensagem_erro = ""
@@ -484,7 +540,14 @@ def inspecionar_lote(lote: ImportacaoLote) -> ImportacaoLote:
                 update_fields=["metricas", "avisos", "status", "concluido_em", "atualizado_em"]
             )
         return lote
-    except (BadZipFile, OSError, ValueError) as erro:
+    except BadZipFile as erro:
+        classificado = IngestaoErroTecnico(f"[tecnico] Arquivo ZIP inválido ou corrompido: {erro}")
+        lote.status = ImportacaoLote.Status.FALHOU
+        lote.mensagem_erro = str(classificado)
+        lote.concluido_em = timezone.now()
+        lote.save(update_fields=["status", "mensagem_erro", "concluido_em", "atualizado_em"])
+        raise classificado from erro
+    except (OSError, ValueError, IngestaoErro) as erro:
         lote.status = ImportacaoLote.Status.FALHOU
         lote.mensagem_erro = str(erro)
         lote.concluido_em = timezone.now()
@@ -511,10 +574,16 @@ def _aplicacao_do_item(item: ItemImportacaoLote) -> AplicacaoMunicipal:
 def _arquivo_do_item(zip_file: ZipFile, item: ItemImportacaoLote) -> ZipInfo:
     infos = zip_file.infolist()
     if item.indice_arquivo >= len(infos):
-        raise ValueError("Índice do arquivo não existe mais no ZIP original.")
+        raise IngestaoErroTecnico(
+            f"[tecnico] Índice do arquivo ({item.indice_arquivo}) não existe mais no ZIP original "
+            f"(total de entradas: {len(infos)})."
+        )
     info = infos[item.indice_arquivo]
     if info.filename != item.caminho_relativo or info.file_size != item.tamanho_bytes:
-        raise ValueError("O item não corresponde mais ao manifesto inspecionado.")
+        raise IngestaoErroTecnico(
+            f"[tecnico] O item '{item.caminho_relativo}' não corresponde mais ao manifesto "
+            f"inspecionado (nome ou tamanho divergem)."
+        )
     return info
 
 
@@ -530,7 +599,10 @@ def _copiar_e_validar_pdf(zip_file: ZipFile, info: ZipInfo, item: ItemImportacao
             tamanho += len(bloco)
             destino.write(bloco)
     if assinatura != b"%PDF-" or resumo.hexdigest() != item.sha256 or tamanho != item.tamanho_bytes:
-        raise ValueError("O PDF não corresponde ao hash, assinatura e tamanho inspecionados.")
+        raise IngestaoErroConteudo(
+            f"[conteudo] O PDF '{item.nome_original}' não corresponde ao hash, assinatura "
+            f"ou tamanho registrados na inspeção."
+        )
     destino.flush()
     destino.seek(0)
 
@@ -587,8 +659,7 @@ def _materializar_item(zip_file: ZipFile, item: ItemImportacaoLote) -> VersaoDoc
 def confirmar_lote(lote: ImportacaoLote) -> dict:
     if lote.status == ImportacaoLote.Status.CONFIRMADO:
         return lote.metricas.get("confirmacao", {})
-    if lote.status != ImportacaoLote.Status.INSPECIONADO:
-        raise ValueError("O lote precisa estar inspecionado antes da confirmação.")
+    _validar_transicao_lote(lote, ImportacaoLote.Status.CONFIRMANDO)
     lote.status = ImportacaoLote.Status.CONFIRMANDO
     lote.save(update_fields=["status", "atualizado_em"])
     resumo = {"confirmados": 0, "falhas": 0, "revisao": 0, "duplicados": 0}
@@ -614,12 +685,20 @@ def confirmar_lote(lote: ImportacaoLote) -> dict:
                     OSError,
                     ValidationError,
                     ValueError,
+                    IngestaoErro,
                 ) as erro:
                     item.estado = ItemImportacaoLote.Estado.FALHOU
                     item.avisos = [*item.avisos, str(erro)]
                     item.save(update_fields=["estado", "avisos", "atualizado_em"])
                     resumo["falhas"] += 1
-    except (BadZipFile, OSError, ValueError) as erro:
+    except BadZipFile as erro:
+        classificado = IngestaoErroTecnico(f"[tecnico] Arquivo ZIP inválido ou corrompido: {erro}")
+        lote.status = ImportacaoLote.Status.FALHOU
+        lote.mensagem_erro = str(classificado)
+        lote.concluido_em = timezone.now()
+        lote.save(update_fields=["status", "mensagem_erro", "concluido_em", "atualizado_em"])
+        raise classificado from erro
+    except (OSError, ValueError, IngestaoErro) as erro:
         lote.status = ImportacaoLote.Status.FALHOU
         lote.mensagem_erro = str(erro)
         lote.concluido_em = timezone.now()
