@@ -332,7 +332,7 @@ def _itens_do_zip(lote: ImportacaoLote) -> tuple[list[ItemImportacaoLote], dict,
         infos = zip_file.infolist()
         arquivos = [(indice, info) for indice, info in enumerate(infos) if not info.is_dir()]
         if not arquivos:
-            raise ValueError(
+            raise IngestaoErroConteudo(
                 _mensagem_validacao(
                     categoria="governanca",
                     codigo="zip_sem_arquivos",
