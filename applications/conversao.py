@@ -20,6 +20,30 @@ from .qualificacao import VERSAO_CODIGO_CONVERSOR, _caminho_local
 class ErroConversaoDocumento(RuntimeError):
     """Erro controlado durante a conversão de uma versão documental."""
 
+    def __init__(
+        self,
+        mensagem: str,
+        *,
+        categoria: str = "tecnico",
+        codigo: str = "conversao_falhou",
+        acao: str = "Revise o arquivo e tente novamente.",
+        detalhes: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(mensagem)
+        self.categoria = categoria
+        self.codigo = codigo
+        self.acao = acao
+        self.detalhes = detalhes or {}
+
+    def para_registro(self) -> dict[str, Any]:
+        return {
+            "categoria": self.categoria,
+            "codigo": self.codigo,
+            "mensagem": str(self),
+            "acao": self.acao,
+            "detalhes": self.detalhes,
+        }
+
 
 def _versao_ferramenta() -> str:
     try:
@@ -116,6 +140,46 @@ def _metricas_manifesto(manifesto: dict[str, Any]) -> dict[str, Any]:
     return metricas
 
 
+def _validar_arquivo_fonte(versao: VersaoDocumento) -> None:
+    resumo = sha256()
+    tamanho = 0
+    assinatura = b""
+    with versao.arquivo.open("rb") as arquivo:
+        while bloco := arquivo.read(1024 * 1024):
+            if not assinatura:
+                assinatura = bloco[:8]
+            resumo.update(bloco)
+            tamanho += len(bloco)
+    if resumo.hexdigest() != versao.sha256:
+        raise ErroConversaoDocumento(
+            "O hash atual do arquivo não corresponde ao hash registrado na ingestão.",
+            categoria="governanca",
+            codigo="arquivo_hash_divergente",
+            acao="Interrompa a conversão e reingira a versão original para restaurar a integridade.",
+        )
+    if tamanho != versao.tamanho_bytes:
+        raise ErroConversaoDocumento(
+            "O tamanho atual do arquivo não corresponde ao tamanho registrado na ingestão.",
+            categoria="governanca",
+            codigo="arquivo_tamanho_divergente",
+            acao="Reingira a versão para alinhar os metadados de tamanho antes de converter.",
+        )
+    if tamanho <= 0:
+        raise ErroConversaoDocumento(
+            "O arquivo está vazio e não pode ser convertido.",
+            categoria="conteudo",
+            codigo="arquivo_vazio",
+            acao="Substitua o documento por um PDF não vazio.",
+        )
+    if not assinatura.startswith(b"%PDF-"):
+        raise ErroConversaoDocumento(
+            "O arquivo não possui assinatura PDF válida.",
+            categoria="conteudo",
+            codigo="assinatura_pdf_invalida",
+            acao="Substitua por um PDF válido antes de converter.",
+        )
+
+
 def converter_versao(
     versao: VersaoDocumento,
     *,
@@ -155,6 +219,7 @@ def converter_versao(
     inicio = monotonic()
 
     try:
+        _validar_arquivo_fonte(versao)
         motor = _carregar_motor()
         with TemporaryDirectory(prefix="protocolo-his-conversao-") as temporario:
             saida = Path(temporario) / "saida"
@@ -175,11 +240,17 @@ def converter_versao(
             manifesto_path, manifesto = _carregar_manifesto(markdown_path)
             if manifesto.get("source_sha256") != versao.sha256:
                 raise ErroConversaoDocumento(
-                    "O hash do arquivo-fonte no manifesto não corresponde à versão ingerida."
+                    "O hash do arquivo-fonte no manifesto não corresponde à versão ingerida.",
+                    categoria="governanca",
+                    codigo="manifesto_hash_fonte_divergente",
+                    acao="Reexecute a conversão e valide a cadeia de custódia da entrada.",
                 )
             if manifesto.get("markdown_sha256") != _hash_bytes(markdown):
                 raise ErroConversaoDocumento(
-                    "O hash do Markdown no manifesto não corresponde ao artefato produzido."
+                    "O hash do Markdown no manifesto não corresponde ao artefato produzido.",
+                    categoria="tecnico",
+                    codigo="manifesto_hash_markdown_divergente",
+                    acao="Reexecute a conversão para regenerar os artefatos de saída.",
                 )
             pacote = _criar_pacote(saida)
             metricas = _metricas_manifesto(manifesto)
@@ -227,8 +298,26 @@ def converter_versao(
                     versao.documento.save(update_fields=["status", "atualizado_em"])
         return processamento
     except Exception as erro:
+        falha = erro
+        if not isinstance(falha, ErroConversaoDocumento):
+            if isinstance(erro, ValueError):
+                falha = ErroConversaoDocumento(
+                    "O PDF aparenta estar malformado para conversão automatizada.",
+                    categoria="conteudo",
+                    codigo="pdf_malformado",
+                    acao="Substitua o arquivo por um PDF íntegro ou encaminhe para fluxo manual.",
+                    detalhes={"erro_original": str(erro)},
+                )
+            else:
+                falha = ErroConversaoDocumento(
+                    str(erro),
+                    categoria="tecnico",
+                    codigo="falha_tecnica_inesperada",
+                    acao="Consulte os logs do conversor e tente novamente.",
+                )
         processamento.status = ProcessamentoDocumento.Status.FALHOU
-        processamento.mensagem_erro = str(erro)
+        processamento.metricas = {**(processamento.metricas or {}), "falha": falha.para_registro()}
+        processamento.mensagem_erro = str(falha)
         processamento.concluido_em = timezone.now()
         processamento.duracao_segundos = monotonic() - inicio
         processamento.save()
@@ -236,4 +325,4 @@ def converter_versao(
         versao.documento.save(update_fields=["status", "atualizado_em"])
         if isinstance(erro, ErroConversaoDocumento):
             raise
-        raise ErroConversaoDocumento(str(erro)) from erro
+        raise falha from erro

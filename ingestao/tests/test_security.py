@@ -19,6 +19,13 @@ def montar_zip(nome: str, conteudo: bytes) -> bytes:
     return memoria.getvalue()
 
 
+def montar_zip_vazio() -> bytes:
+    memoria = BytesIO()
+    with ZipFile(memoria, "w", ZIP_DEFLATED):
+        pass
+    return memoria.getvalue()
+
+
 @override_settings(API_INGESTAO_TOKEN=TOKEN)
 class TestesSegurancaIngestao(TestCase):
     def setUp(self):
@@ -63,4 +70,39 @@ class TestesSegurancaIngestao(TestCase):
         self.assertEqual(resposta.status_code, 200)
         item = lote.itens.get()
         self.assertEqual(item.estado, "revisao")
-        self.assertIn("assinatura do arquivo não corresponde a PDF", item.avisos)
+        self.assertTrue(
+            any("assinatura do arquivo não corresponde a PDF" in aviso for aviso in item.avisos)
+        )
+
+    def test_arquivo_vazio_e_ignorado(self):
+        lote = self._receber(montar_zip("Lote/Jundiaí/vazio.pdf", b""))
+        resposta = self.client.post(
+            reverse("api_inspecionar_importacao", kwargs={"lote_id": lote.pk}),
+            **CABECALHO,
+        )
+        self.assertEqual(resposta.status_code, 200)
+        lote.refresh_from_db()
+        self.assertEqual(lote.itens.count(), 0)
+        self.assertTrue(any("arquivo vazio ignorado" in aviso for aviso in lote.avisos))
+
+    @override_settings(INGESTAO_MAX_RAZAO_COMPACTACAO=1.1)
+    def test_arquivo_supercomprimido_e_ignorado(self):
+        conteudo = b"%PDF-1.4\n" + (b"A" * 250_000) + b"\n%%EOF"
+        lote = self._receber(montar_zip("Lote/Jundiaí/supercomprimido.pdf", conteudo))
+        resposta = self.client.post(
+            reverse("api_inspecionar_importacao", kwargs={"lote_id": lote.pk}),
+            **CABECALHO,
+        )
+        self.assertEqual(resposta.status_code, 200)
+        lote.refresh_from_db()
+        self.assertEqual(lote.itens.count(), 0)
+        self.assertTrue(any("razão de compactação suspeita" in aviso for aviso in lote.avisos))
+
+    def test_zip_sem_arquivos_retorna_falha_estruturada(self):
+        lote = self._receber(montar_zip_vazio())
+        resposta = self.client.post(
+            reverse("api_inspecionar_importacao", kwargs={"lote_id": lote.pk}),
+            **CABECALHO,
+        )
+        self.assertEqual(resposta.status_code, 422)
+        self.assertIn("zip_sem_arquivos", resposta.json()["erro"])

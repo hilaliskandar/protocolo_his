@@ -145,6 +145,32 @@ class TestesConversaoDocumental(TestCase):
         ):
             converter_versao(self.versao)
 
+    def test_conversao_rejeita_tamanho_divergente_do_arquivo_fonte(self):
+        self.versao.tamanho_bytes += 1
+        self.versao.save(update_fields=["tamanho_bytes"])
+
+        with self.assertRaises(ErroConversaoDocumento):
+            converter_versao(self.versao)
+
+        processamento = self.versao.processamentos.get(etapa=ProcessamentoDocumento.Etapa.CONVERSAO)
+        self.assertEqual(processamento.metricas["falha"]["categoria"], "governanca")
+        self.assertEqual(processamento.metricas["falha"]["codigo"], "arquivo_tamanho_divergente")
+
+    def test_conversao_classifica_pdf_malformado(self):
+        def motor_malformado(_caminho: Path, _saida: Path, *, dpi: int, source_reference: str):
+            del dpi, source_reference
+            raise ValueError("trailer inválido")
+
+        with (
+            patch("applications.conversao._carregar_motor", return_value=motor_malformado),
+            self.assertRaises(ErroConversaoDocumento),
+        ):
+            converter_versao(self.versao)
+
+        processamento = self.versao.processamentos.get(etapa=ProcessamentoDocumento.Etapa.CONVERSAO)
+        self.assertEqual(processamento.metricas["falha"]["categoria"], "conteudo")
+        self.assertEqual(processamento.metricas["falha"]["codigo"], "pdf_malformado")
+
     def test_comando_converte_uma_versao(self):
         with patch("applications.conversao._carregar_motor", return_value=self._motor_falso):
             call_command("converter_documentos", versao=self.versao.pk, dpi=300)
