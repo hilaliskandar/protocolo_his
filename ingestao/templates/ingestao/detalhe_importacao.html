@@ -20,6 +20,17 @@
     </dl>
 </section>
 
+{% if lote.status != "confirmando" and lote.status != "confirmado" %}
+<div class="acoes">
+    <form method="post" action="{% url 'inspecionar_importacao_web' lote.pk %}">
+        {% csrf_token %}
+        <button class="botao" type="submit">
+            {% if lote.status == "recebido" %}Inspecionar ZIP{% else %}Reinspecionar ZIP{% endif %}
+        </button>
+    </form>
+</div>
+{% endif %}
+
 <section class="painel" style="margin-top: 1rem;">
     <h2>Itens identificados</h2>
     {% if itens %}
@@ -35,5 +46,5 @@
     {% else %}<p class="vazio">Nenhum item foi identificado ou a inspeção ainda não foi executada.</p>{% endif %}
 </section>
 
-<div class="acoes"><a class="botao" href="{% url 'nova_importacao' %}">Receber outro ZIP</a></div>
+<div class="acoes"><a class="botao secundario" href="{% url 'nova_importacao' %}">Receber outro ZIP</a></div>
 {% endblock %}
