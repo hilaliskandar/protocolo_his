@@ -16,7 +16,7 @@ from django.views.decorators.http import require_http_methods
 from applications.models import TipoNormativo
 
 from .models import ImportacaoLote, ItemImportacaoLote
-from .services import confirmar_lote, inspecionar_lote
+from .services import IngestaoErro, IngestaoErroGovernanca, confirmar_lote, inspecionar_lote
 
 
 def _autorizado(request: HttpRequest) -> bool:
@@ -179,8 +179,24 @@ def inspecionar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
     lote = get_object_or_404(ImportacaoLote, pk=lote_id)
     try:
         inspecionar_lote(lote)
-    except (OSError, ValueError) as erro:
-        return JsonResponse({"erro": str(erro), "lote": _lote_json(lote)}, status=422)
+    except IngestaoErroGovernanca as erro:
+        # IngestaoErroGovernanca messages are always controlled strings we write ourselves.
+        return JsonResponse(
+            {"erro": str(erro), "categoria": erro.categoria, "lote": _lote_json(lote)},
+            status=409,
+        )
+    except IngestaoErro as erro:
+        # IngestaoErro subclasses use controlled, prefixed messages safe for external exposure.
+        return JsonResponse(
+            {"erro": str(erro), "categoria": erro.categoria, "lote": _lote_json(lote)},
+            status=422,
+        )
+    except (OSError, ValueError):
+        # For OS and generic errors, expose only a safe generic message; details are in lote.mensagem_erro.
+        return JsonResponse(
+            {"erro": "Falha ao processar o arquivo ZIP.", "categoria": "tecnico", "lote": _lote_json(lote)},
+            status=422,
+        )
     return JsonResponse(_lote_json(lote, incluir_itens=True))
 
 
@@ -267,6 +283,13 @@ def confirmar_importacao(request: HttpRequest, lote_id) -> JsonResponse:
     lote = get_object_or_404(ImportacaoLote, pk=lote_id)
     try:
         resumo = confirmar_lote(lote)
-    except ValueError as erro:
-        return JsonResponse({"erro": str(erro)}, status=409)
+    except IngestaoErroGovernanca as erro:
+        # IngestaoErroGovernanca messages are always controlled strings we write ourselves.
+        return JsonResponse({"erro": str(erro), "categoria": erro.categoria}, status=409)
+    except IngestaoErro as erro:
+        # IngestaoErro subclasses use controlled, prefixed messages safe for external exposure.
+        return JsonResponse({"erro": str(erro), "categoria": erro.categoria}, status=409)
+    except (ValueError, OSError):
+        # For generic errors, expose only a safe message; details are persisted in lote.mensagem_erro.
+        return JsonResponse({"erro": "Falha ao confirmar o lote.", "categoria": "tecnico"}, status=409)
     return JsonResponse({"lote": _lote_json(lote), "resumo": resumo})

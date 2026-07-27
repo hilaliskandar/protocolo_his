@@ -14,13 +14,9 @@
     .markdown h1, .markdown h2, .markdown h3 { margin-top:1.4em; }
     .markdown pre { max-height:none; white-space:pre-wrap; }
     .estado-indisponivel { padding:2rem; color:var(--muted); }
-    .seletor-versao { display:flex; gap:.75rem; align-items:end; flex-wrap:wrap; margin:1rem 0; }
-    .seletor-versao label { display:flex; flex-direction:column; gap:.25rem; font-weight:600; }
-    .seletor-versao select { min-width:24rem; max-width:100%; padding:.55rem; }
     @media (max-width: 900px) {
         .leitor-grade.comparacao { grid-template-columns:1fr; }
         .pdf-frame, .markdown { height:60vh; max-height:60vh; }
-        .seletor-versao select { min-width:0; width:100%; }
     }
 </style>
 
@@ -28,36 +24,17 @@
 <h1>{{ documento.titulo }}</h1>
 <p class="subtitulo">{{ documento }} — leitura do original e dos artefatos convertidos.</p>
 
-{% if versoes_disponiveis %}
-<form class="seletor-versao" method="get">
-    <input type="hidden" name="modo" value="{{ modo }}">
-    <label for="versao-documental">
-        Versão documental
-        <select id="versao-documental" name="versao">
-            {% for opcao in versoes_disponiveis %}
-                <option value="{{ opcao.pk }}" {% if versao and opcao.pk == versao.pk %}selected{% endif %}>
-                    Versão {{ opcao.versao }} — {{ opcao.nome_original|default:"arquivo sem nome registrado" }}
-                </option>
-            {% endfor %}
-        </select>
-    </label>
-    <button type="submit">Abrir versão</button>
-</form>
-{% endif %}
-
 <div class="abas" role="navigation" aria-label="Modos do leitor">
-    <a class="aba {% if modo == 'pdf' %}ativa{% endif %}" href="?modo=pdf{% if versao %}&amp;versao={{ versao.pk }}{% endif %}">PDF original</a>
-    <a class="aba {% if modo == 'markdown' %}ativa{% endif %}" href="?modo=markdown{% if versao %}&amp;versao={{ versao.pk }}{% endif %}">Texto convertido</a>
-    <a class="aba {% if modo == 'comparacao' %}ativa{% endif %}" href="?modo=comparacao{% if versao %}&amp;versao={{ versao.pk }}{% endif %}">Comparar</a>
+    <a class="aba {% if modo == 'pdf' %}ativa{% endif %}" href="?modo=pdf">PDF original</a>
+    <a class="aba {% if modo == 'markdown' %}ativa{% endif %}" href="?modo=markdown">Texto convertido</a>
+    <a class="aba {% if modo == 'comparacao' %}ativa{% endif %}" href="?modo=comparacao">Comparar</a>
 </div>
 
 <section class="painel" style="margin-bottom:1rem">
     <dl>
-        <dt>Versão documental</dt><dd>{% if versao %}{{ versao.versao }} — {{ versao.nome_original }}{% else %}Não disponível{% endif %}</dd>
-        <dt>SHA-256</dt><dd>{% if versao %}<code>{{ versao.sha256 }}</code>{% else %}Não disponível{% endif %}</dd>
-        <dt>Recebida em</dt><dd>{% if versao %}{{ versao.criado_em|date:"d/m/Y H:i" }}{% else %}Não disponível{% endif %}</dd>
+        <dt>Versão original</dt><dd>{% if versao %}{{ versao.versao }} — {{ versao.nome_original }}{% else %}Não disponível{% endif %}</dd>
         <dt>PDF</dt><dd>{% if pdf_disponivel %}Disponível{% else %}Indisponível{% endif %}</dd>
-        <dt>Markdown</dt><dd>{% if markdown_disponivel %}Disponível — artefato #{{ artefato_markdown.pk }}, processamento #{{ artefato_markdown.processamento.pk }}{% elif artefato_markdown %}Não pôde ser lido{% else %}Aguardando conversão desta versão{% endif %}</dd>
+        <dt>Markdown</dt><dd>{% if markdown_disponivel %}Disponível — artefato #{{ artefato_markdown.pk }}{% elif artefato_markdown %}Não pôde ser lido{% else %}Aguardando conversão{% endif %}</dd>
         <dt>Estado documental</dt><dd><span class="status {{ documento.status }}">{{ documento.get_status_display }}</span></dd>
     </dl>
 </section>
@@ -65,9 +42,9 @@
 <div class="leitor-grade {% if modo == 'comparacao' %}comparacao{% endif %}">
     {% if modo == 'pdf' or modo == 'comparacao' %}
     <section class="visor">
-        <div class="visor-cabecalho"><strong>PDF original — versão {{ versao.versao }}</strong>{% if versao %}<a href="{% url 'exibir_pdf' versao.pk %}" target="_blank" rel="noopener">Abrir em nova guia</a>{% endif %}</div>
+        <div class="visor-cabecalho"><strong>PDF original</strong>{% if versao %}<a href="{% url 'exibir_pdf' versao.pk %}" target="_blank" rel="noopener">Abrir em nova guia</a>{% endif %}</div>
         {% if pdf_disponivel %}
-            <iframe class="pdf-frame" src="{% url 'exibir_pdf' versao.pk %}#toolbar=1&amp;navpanes=1&amp;view=FitH" title="PDF original de {{ documento.titulo }} — versão {{ versao.versao }}"></iframe>
+            <iframe class="pdf-frame" src="{% url 'exibir_pdf' versao.pk %}#toolbar=1&navpanes=1&view=FitH" title="PDF original de {{ documento.titulo }}"></iframe>
         {% else %}
             <div class="estado-indisponivel">Nenhuma versão PDF está disponível para este documento.</div>
         {% endif %}
@@ -76,13 +53,13 @@
 
     {% if modo == 'markdown' or modo == 'comparacao' %}
     <section class="visor">
-        <div class="visor-cabecalho"><strong>Markdown convertido — versão {{ versao.versao }}</strong>{% if artefato_markdown %}<a href="{% url 'detalhe_artefato' artefato_markdown.pk %}">Ver artefato</a>{% endif %}</div>
+        <div class="visor-cabecalho"><strong>Markdown convertido</strong>{% if artefato_markdown %}<a href="{% url 'detalhe_artefato' artefato_markdown.pk %}">Ver artefato</a>{% endif %}</div>
         {% if markdown_disponivel %}
             <article class="markdown">{{ markdown_html|safe }}</article>
         {% elif erro_markdown %}
             <div class="estado-indisponivel">Não foi possível ler o Markdown: {{ erro_markdown }}</div>
         {% else %}
-            <div class="estado-indisponivel">A conversão para Markdown desta versão ainda não foi registrada. O PDF original permanece disponível.</div>
+            <div class="estado-indisponivel">A conversão para Markdown ainda não foi registrada. O PDF original e o diagnóstico permanecem disponíveis.</div>
         {% endif %}
     </section>
     {% endif %}
